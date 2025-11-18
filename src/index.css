@@ -9,7 +9,7 @@ All colors MUST be HSL.
 @layer base {
   :root {
     /* NextTake Brand Colors - Teal/Turquoise Gradient Theme */
-    --background: 180 45% 96%;
+    --background: 0 0% 97%;
     --foreground: 0 0% 0%;
 
     --card: 0 0% 100%;
@@ -93,5 +93,6 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground;
+    font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
   }
 }
