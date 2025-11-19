@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 const formSchema = z.object({
   websiteUrl: z.string().url({ message: "Please enter a valid URL" }).min(1, "Website URL is required"),
@@ -45,21 +46,32 @@ const BrandDiagnosticForm = () => {
     setIsLoading(true);
     
     try {
-      // TODO: Replace with actual webhook endpoint
-      const webhookUrl = "YOUR_WEBHOOK_ENDPOINT_HERE";
+      // Map form fields to Supabase column names
+      const { error } = await supabase
+        .from('brand_scans_inputs')
+        .insert({
+          brand_website_url: data.websiteUrl,
+          instagram: data.instagram || null,
+          x_handle: data.twitter || null,
+          linkedin_url: data.linkedin || null,
+          tiktok_handle: data.tiktok || null,
+          industry: data.industry || null,
+          market: data.market || null,
+        });
+
+      if (error) {
+        throw error;
+      }
       
-      // Simulating API call
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      console.log("Form data:", data);
-      toast.success("Analysis complete! Redirecting to results...");
+      console.log("Form data submitted:", data);
+      toast.success("Analysis complete! Brand scan data saved successfully.");
       
       // TODO: Navigate to Page 2 with results
       // navigate('/results', { state: { data } });
       
     } catch (error) {
       console.error("Error submitting form:", error);
-      toast.error("Failed to analyze brand. Please try again.");
+      toast.error("Failed to save brand scan data. Please try again.");
     } finally {
       setIsLoading(false);
     }
