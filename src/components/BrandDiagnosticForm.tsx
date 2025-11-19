@@ -52,9 +52,9 @@ const BrandDiagnosticForm = () => {
         .insert({
           brand_website_url: data.websiteUrl,
           instagram: data.instagram || null,
-          x_handle: data.twitter || null,
-          linkedin_url: data.linkedin || null,
-          tiktok_handle: data.tiktok || null,
+          x: data.twitter || null,
+          linkedin: data.linkedin || null,
+          tiktok: data.tiktok || null,
           industry: data.industry || null,
           market: data.market || null,
         });
