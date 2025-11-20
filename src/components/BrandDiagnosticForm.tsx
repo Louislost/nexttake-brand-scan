@@ -47,7 +47,7 @@ const BrandDiagnosticForm = () => {
     setIsLoading(true);
     
     try {
-      // Send data to n8n webhook
+      // Send all form data to n8n webhook
       const response = await fetch("https://atrinum.app.n8n.cloud/webhook/brand-diagnostic", {
         method: "POST",
         headers: {
@@ -56,6 +56,13 @@ const BrandDiagnosticForm = () => {
         body: JSON.stringify({
           brand_website_url: data.websiteUrl,
           instagram: data.instagram || null,
+          x: data.twitter || null,
+          linkedin: data.linkedin || null,
+          tiktok: data.tiktok || null,
+          industry: data.industry || null,
+          market: data.market || null,
+          ip_address: null, // IP will be captured by n8n server-side
+          user_agent: navigator.userAgent,
         }),
       });
 
