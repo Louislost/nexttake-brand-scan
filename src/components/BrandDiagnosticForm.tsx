@@ -48,7 +48,7 @@ const BrandDiagnosticForm = () => {
     
     try {
       // Send data to n8n webhook
-      const response = await fetch("https://<YOUR-N8N-DOMAIN>/webhook/brand-diagnostic", {
+      const response = await fetch("https://atrinum.app.n8n.cloud/webhook/brand-diagnostic", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -66,14 +66,7 @@ const BrandDiagnosticForm = () => {
       const responseData = await response.json();
       console.log("n8n webhook response:", responseData);
       
-      toast.success("Analysis complete! Processing your brand data.");
-      
-      // Redirect to results page with input_id from n8n response
-      if (responseData.input_id) {
-        navigate(`/results?input_id=${responseData.input_id}`);
-      } else {
-        throw new Error("No input_id received from n8n");
-      }
+      toast.success("Analysis complete! Your brand data has been submitted successfully.");
       
     } catch (error) {
       console.error("Error submitting form:", error);
