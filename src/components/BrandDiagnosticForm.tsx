@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { useNavigate } from "react-router-dom";
 
 const formSchema = z.object({
   websiteUrl: z.string().url({ message: "Please enter a valid URL" }).min(1, "Website URL is required"),
@@ -31,6 +31,7 @@ type FormData = z.infer<typeof formSchema>;
 
 const BrandDiagnosticForm = () => {
   const [isLoading, setIsLoading] = useState(false);
+  const navigate = useNavigate();
 
   const {
     register,
@@ -46,32 +47,37 @@ const BrandDiagnosticForm = () => {
     setIsLoading(true);
     
     try {
-      // Map form fields to Supabase column names
-      const { error } = await supabase
-        .from('brand_scans_inputs')
-        .insert({
+      // Send data to n8n webhook
+      const response = await fetch("https://<YOUR-N8N-DOMAIN>/webhook/brand-diagnostic", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
           brand_website_url: data.websiteUrl,
           instagram: data.instagram || null,
-          x: data.twitter || null,
-          linkedin: data.linkedin || null,
-          tiktok: data.tiktok || null,
-          industry: data.industry || null,
-          market: data.market || null,
-        });
+        }),
+      });
 
-      if (error) {
-        throw error;
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
       
-      console.log("Form data submitted:", data);
-      toast.success("Analysis complete! Brand scan data saved successfully.");
+      const responseData = await response.json();
+      console.log("n8n webhook response:", responseData);
       
-      // TODO: Navigate to Page 2 with results
-      // navigate('/results', { state: { data } });
+      toast.success("Analysis complete! Processing your brand data.");
+      
+      // Redirect to results page with input_id from n8n response
+      if (responseData.input_id) {
+        navigate(`/results?input_id=${responseData.input_id}`);
+      } else {
+        throw new Error("No input_id received from n8n");
+      }
       
     } catch (error) {
       console.error("Error submitting form:", error);
-      toast.error("Failed to save brand scan data. Please try again.");
+      toast.error("Failed to process brand scan. Please try again.");
     } finally {
       setIsLoading(false);
     }
