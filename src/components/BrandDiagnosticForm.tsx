@@ -73,45 +73,24 @@ const BrandDiagnosticForm = () => {
       const responseData = await response.json();
       console.log("n8n webhook response:", responseData);
       
-      toast.success("Analysis complete! Your brand data has been submitted successfully.");
+      // Redirect to results page with input_id from n8n response
+      if (responseData.input_id) {
+        navigate(`/result?input_id=${responseData.input_id}`);
+      } else {
+        toast.error("Something went wrong. Please try again.");
+      }
       
     } catch (error) {
       console.error("Error submitting form:", error);
-      toast.error("Failed to process brand scan. Please try again.");
+      toast.error("Something went wrong. Please try again.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  if (isLoading) {
-    return (
-      <Card className="max-w-3xl mx-auto p-12 animate-fade-in">
-        <div className="flex flex-col items-center justify-center space-y-6">
-          <div className="relative">
-            <div className="w-20 h-20 rounded-full border-4 border-primary/20 border-t-primary animate-spin"></div>
-          </div>
-          <div className="text-center space-y-2">
-            <h3 className="text-2xl font-bold">Analyzing your brand's digital footprint...</h3>
-            <p className="text-muted-foreground text-lg">
-              Collecting signals across 50+ public sources
-            </p>
-          </div>
-          <div className="w-full max-w-md bg-muted rounded-full h-2 overflow-hidden">
-            <div 
-              className="h-full bg-gradient-to-r from-primary to-accent animate-shimmer"
-              style={{
-                backgroundSize: '200% 100%',
-              }}
-            ></div>
-          </div>
-        </div>
-      </Card>
-    );
-  }
-
   return (
     <Card className="max-w-3xl mx-auto p-8 md:p-12 shadow-[var(--shadow-medium)] animate-slide-up">
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
+      <form onSubmit={handleSubmit(onSubmit)} className={`space-y-8 transition-opacity duration-300 ${isLoading ? 'opacity-50' : 'opacity-100'}`}>
         {/* Website URL - Required */}
         <div className="space-y-3">
           <Label htmlFor="websiteUrl" className="text-lg font-semibold flex items-center gap-2">
