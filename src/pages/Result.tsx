@@ -12,16 +12,20 @@ const Result = () => {
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [resultData, setResultData] = useState<any>(null);
+  const [results, setResults] = useState<any>(null);
+  const [pollingCount, setPollingCount] = useState(0);
 
   useEffect(() => {
-    const fetchResults = async () => {
-      if (!inputId) {
-        setError("Missing or invalid input_id.");
-        setLoading(false);
-        return;
-      }
+    if (!inputId) {
+      setError("Missing or invalid input_id.");
+      setLoading(false);
+      return;
+    }
 
+    let pollInterval: NodeJS.Timeout;
+    const maxPolls = 10; // 10 polls × 2 seconds = 20 seconds max
+
+    const fetchResults = async () => {
       try {
         const { data, error: fetchError } = await supabase
           .from("brand_scans_results")
@@ -32,23 +36,49 @@ const Result = () => {
 
         if (fetchError) throw fetchError;
 
-        if (!data) {
-          setError("No results found for this diagnostic.");
+        if (data && data.result_json) {
+          // Results found!
+          setResults(data.result_json);
           setLoading(false);
-          return;
+          if (pollInterval) clearInterval(pollInterval);
+          return true;
         }
 
-        setResultData(data.result_json);
-        setLoading(false);
+        // No results yet, continue polling
+        return false;
       } catch (err) {
         console.error("Error fetching results:", err);
         setError("Failed to load results. Please try again.");
         toast.error("Failed to load results");
         setLoading(false);
+        if (pollInterval) clearInterval(pollInterval);
+        return true; // Stop polling on error
       }
     };
 
-    fetchResults();
+    // Initial fetch
+    fetchResults().then((shouldStop) => {
+      if (shouldStop) return;
+
+      // Start polling every 2 seconds
+      pollInterval = setInterval(async () => {
+        setPollingCount((prev) => {
+          const newCount = prev + 1;
+          if (newCount >= maxPolls) {
+            clearInterval(pollInterval);
+            setError("No results found for this diagnostic.");
+            setLoading(false);
+          }
+          return newCount;
+        });
+
+        await fetchResults();
+      }, 2000);
+    });
+
+    return () => {
+      if (pollInterval) clearInterval(pollInterval);
+    };
   }, [inputId]);
 
   const renderJsonSection = (title: string, data: any) => {
@@ -103,11 +133,12 @@ const Result = () => {
             </CardHeader>
             <CardContent className="space-y-6">
               {loading && (
-                <div className="space-y-4">
-                  <p className="text-muted-foreground">Loading your results…</p>
-                  <Skeleton className="h-20 w-full" />
-                  <Skeleton className="h-20 w-full" />
-                  <Skeleton className="h-20 w-full" />
+                <div className="space-y-4 text-center">
+                  <div className="flex justify-center">
+                    <div className="w-16 h-16 rounded-full border-4 border-primary/20 border-t-primary animate-spin"></div>
+                  </div>
+                  <p className="text-lg font-semibold text-foreground">Your brand diagnostic is processing… Please wait.</p>
+                  <p className="text-sm text-muted-foreground">This may take up to 20 seconds.</p>
                 </div>
               )}
 
@@ -117,19 +148,11 @@ const Result = () => {
                 </div>
               )}
 
-              {!loading && !error && resultData && (
+              {!loading && !error && results && (
                 <div>
-                  {resultData.scores && renderJsonSection("Scores", resultData.scores)}
-                  {resultData.insights && renderJsonSection("Insights", resultData.insights)}
-                  {resultData.recommendations && renderJsonSection("Recommendations", resultData.recommendations)}
-                  
-                  {/* Render any other top-level properties */}
-                  {Object.entries(resultData).map(([key, value]) => {
-                    if (!["scores", "insights", "recommendations"].includes(key)) {
-                      return renderJsonSection(key.replace(/_/g, " ").toUpperCase(), value);
-                    }
-                    return null;
-                  })}
+                  <pre className="bg-muted/50 p-4 rounded-md overflow-auto text-sm text-foreground">
+                    {JSON.stringify(results, null, 2)}
+                  </pre>
                 </div>
               )}
             </CardContent>
