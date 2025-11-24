@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 
 const formSchema = z.object({
+  brandName: z.string().min(1, "Brand name is required"),
   websiteUrl: z.string().url({ message: "Please enter a valid URL" }).min(1, "Website URL is required"),
   instagram: z.string().optional(),
   twitter: z.string().optional(),
@@ -54,6 +55,7 @@ const BrandDiagnosticForm = () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          brand_name: data.brandName,
           brand_website_url: data.websiteUrl,
           instagram: data.instagram || null,
           x: data.twitter || null,
@@ -91,6 +93,25 @@ const BrandDiagnosticForm = () => {
   return (
     <Card className="max-w-3xl mx-auto p-8 md:p-12 shadow-[var(--shadow-medium)] animate-slide-up">
       <form onSubmit={handleSubmit(onSubmit)} className={`space-y-8 transition-opacity duration-300 ${isLoading ? 'opacity-50' : 'opacity-100'}`}>
+        {/* Brand Name - Required */}
+        <div className="space-y-3">
+          <Label htmlFor="brandName" className="text-lg font-semibold flex items-center gap-2">
+            <Globe className="w-5 h-5 text-primary" />
+            Brand Name
+            <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            id="brandName"
+            type="text"
+            placeholder="e.g., &quot;Nike&quot;, &quot;Zara&quot;, &quot;Adidas&quot;"
+            className={`h-14 text-lg ${errors.brandName ? 'border-destructive' : 'focus:border-primary'}`}
+            {...register("brandName")}
+          />
+          {errors.brandName && (
+            <p className="text-sm text-destructive">{errors.brandName.message}</p>
+          )}
+        </div>
+
         {/* Website URL - Required */}
         <div className="space-y-3">
           <Label htmlFor="websiteUrl" className="text-lg font-semibold flex items-center gap-2">
