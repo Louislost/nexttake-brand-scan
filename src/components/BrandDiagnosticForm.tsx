@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Instagram, Twitter, Linkedin, Music2, Globe, Loader2, Rocket } from "lucide-react";
+import { Instagram, Twitter, Linkedin, Music2, Globe, Loader2, Rocket, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -96,7 +96,7 @@ const BrandDiagnosticForm = () => {
         {/* Brand Name - Required */}
         <div className="space-y-3">
           <Label htmlFor="brandName" className="text-lg font-semibold flex items-center gap-2">
-            <Globe className="w-5 h-5 text-primary" />
+            <Sparkles className="w-5 h-5 text-primary" />
             Brand Name
             <span className="text-destructive">*</span>
           </Label>
