@@ -9,6 +9,31 @@ const corsHeaders = {
 // Extract pillar scores from the assistant result
 function extractPillarScores(result: any): any {
   try {
+    // Handle new format with pillars array
+    if (result.pillars && Array.isArray(result.pillars)) {
+      const scores: any = {};
+      
+      // Map pillar IDs to expected frontend keys
+      const idMapping: Record<string, string> = {
+        'search_visibility': 'searchVisibility',
+        'website_authority': 'digitalAuthority',
+        'social_presence': 'socialPresence',
+        'social_presence_strength': 'socialPresence',
+        'brand_mentions': 'brandMentions',
+        'sentiment_reputation': 'sentimentAnalysis',
+        'content_footprint': 'contentFootprint',
+        'brand_consistency': 'brandConsistency',
+        'competitor_positioning': 'competitiveLandscape'
+      };
+      
+      result.pillars.forEach((pillar: any) => {
+        const key = idMapping[pillar.id] || pillar.id;
+        scores[key] = pillar.score || 0;
+      });
+      return scores;
+    }
+    
+    // Handle old format with direct score properties
     return {
       searchVisibility: result.search_visibility_score || 0,
       digitalAuthority: result.digital_authority_score || 0,
@@ -25,8 +50,14 @@ function extractPillarScores(result: any): any {
   }
 }
 
-// Calculate overall score from pillar scores
-function calculateOverallScore(pillarScores: any): number {
+// Calculate overall score from pillar scores or use global_score
+function calculateOverallScore(pillarScores: any, result: any): number {
+  // Use global_score if available (new format)
+  if (result.global_score !== undefined && result.global_score !== null) {
+    return Math.round(result.global_score);
+  }
+  
+  // Fall back to calculating from pillar scores (old format)
   const scores = Object.values(pillarScores).filter((score): score is number => typeof score === 'number');
   if (scores.length === 0) return 0;
   return Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length);
@@ -203,7 +234,7 @@ serve(async (req) => {
 
       // Extract scores
       const pillarScores = extractPillarScores(assistantResult);
-      const overallScore = calculateOverallScore(pillarScores);
+      const overallScore = calculateOverallScore(pillarScores, assistantResult);
 
       console.log('Updating database with final results');
 
