@@ -511,30 +511,245 @@ async function fetchWaybackData(url: string) {
 }
 
 // ============= SOCIAL MEDIA DATA =============
+
+// Browser-like headers for social media fetches
+const BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.5',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'DNT': '1',
+  'Connection': 'keep-alive',
+  'Upgrade-Insecure-Requests': '1',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
+  'Cache-Control': 'max-age=0'
+};
+
+async function fetchInstagramProfile(handle: string) {
+  try {
+    console.log('Fetching Instagram profile:', handle);
+    const url = `https://www.instagram.com/${handle}/`;
+    
+    const response = await fetch(url, { 
+      headers: BROWSER_HEADERS,
+      redirect: 'follow'
+    });
+    
+    if (!response.ok) {
+      console.log('Instagram profile fetch failed:', response.status);
+      return { provided: true, handle, fetched: false, blocked: true };
+    }
+    
+    const html = await response.text();
+    
+    // Extract og:description which contains: "41K Followers, 74 Following, 86 Posts - Bio text"
+    const ogDescMatch = html.match(/<meta property="og:description" content="([^"]+)"/);
+    const ogImageMatch = html.match(/<meta property="og:image" content="([^"]+)"/);
+    
+    if (ogDescMatch) {
+      const description = ogDescMatch[1];
+      
+      // Parse metrics from description
+      const followersMatch = description.match(/([\d.,KMB]+)\s+Followers?/i);
+      const followingMatch = description.match(/([\d.,KMB]+)\s+Following/i);
+      const postsMatch = description.match(/([\d.,KMB]+)\s+Posts?/i);
+      
+      // Extract bio (everything after " - ")
+      const bioMatch = description.match(/\s+-\s+(.+)$/);
+      
+      return {
+        provided: true,
+        handle,
+        fetched: true,
+        followers: followersMatch ? followersMatch[1] : null,
+        following: followingMatch ? followingMatch[1] : null,
+        posts: postsMatch ? postsMatch[1] : null,
+        bio: bioMatch ? bioMatch[1] : description,
+        profileImage: ogImageMatch ? ogImageMatch[1] : null
+      };
+    }
+    
+    return { provided: true, handle, fetched: true, noData: true };
+    
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Instagram fetch error:', errorMessage);
+    return { provided: true, handle, fetched: false, error: errorMessage };
+  }
+}
+
+async function fetchXProfile(handle: string) {
+  try {
+    console.log('Fetching X/Twitter profile:', handle);
+    const url = `https://x.com/${handle}`;
+    
+    const response = await fetch(url, { 
+      headers: BROWSER_HEADERS,
+      redirect: 'follow'
+    });
+    
+    if (!response.ok) {
+      console.log('X profile fetch failed:', response.status);
+      return { provided: true, handle, fetched: false, blocked: true };
+    }
+    
+    const html = await response.text();
+    
+    // Extract og:description and og:image
+    const ogDescMatch = html.match(/<meta property="og:description" content="([^"]+)"/);
+    const ogImageMatch = html.match(/<meta property="og:image" content="([^"]+)"/);
+    const ogTitleMatch = html.match(/<meta property="og:title" content="([^"]+)"/);
+    
+    if (ogDescMatch || ogTitleMatch) {
+      return {
+        provided: true,
+        handle,
+        fetched: true,
+        displayName: ogTitleMatch ? ogTitleMatch[1] : null,
+        bio: ogDescMatch ? ogDescMatch[1] : null,
+        profileImage: ogImageMatch ? ogImageMatch[1] : null
+      };
+    }
+    
+    return { provided: true, handle, fetched: true, noData: true };
+    
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('X fetch error:', errorMessage);
+    return { provided: true, handle, fetched: false, error: errorMessage };
+  }
+}
+
+async function fetchTikTokProfile(handle: string) {
+  try {
+    console.log('Fetching TikTok profile:', handle);
+    const url = `https://www.tiktok.com/@${handle}`;
+    
+    const response = await fetch(url, { 
+      headers: BROWSER_HEADERS,
+      redirect: 'follow'
+    });
+    
+    if (!response.ok) {
+      console.log('TikTok profile fetch failed:', response.status);
+      return { provided: true, handle, fetched: false, blocked: true };
+    }
+    
+    const html = await response.text();
+    
+    // Extract og:description and og:image
+    const ogDescMatch = html.match(/<meta property="og:description" content="([^"]+)"/);
+    const ogImageMatch = html.match(/<meta property="og:image" content="([^"]+)"/);
+    
+    if (ogDescMatch) {
+      const description = ogDescMatch[1];
+      
+      // Parse metrics from description (format varies)
+      const followersMatch = description.match(/([\d.,KMB]+)\s+Followers?/i);
+      const likesMatch = description.match(/([\d.,KMB]+)\s+Likes?/i);
+      
+      return {
+        provided: true,
+        handle,
+        fetched: true,
+        followers: followersMatch ? followersMatch[1] : null,
+        likes: likesMatch ? likesMatch[1] : null,
+        bio: description,
+        profileImage: ogImageMatch ? ogImageMatch[1] : null
+      };
+    }
+    
+    return { provided: true, handle, fetched: true, noData: true };
+    
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('TikTok fetch error:', errorMessage);
+    return { provided: true, handle, fetched: false, error: errorMessage };
+  }
+}
+
+async function fetchLinkedInProfile(handle: string) {
+  try {
+    console.log('Fetching LinkedIn profile:', handle);
+    const url = `https://www.linkedin.com/company/${handle}/`;
+    
+    const response = await fetch(url, { 
+      headers: BROWSER_HEADERS,
+      redirect: 'follow'
+    });
+    
+    if (!response.ok) {
+      console.log('LinkedIn profile fetch failed:', response.status);
+      return { provided: true, handle, fetched: false, blocked: true };
+    }
+    
+    const html = await response.text();
+    
+    // Extract og:title, og:description, and og:image
+    const ogTitleMatch = html.match(/<meta property="og:title" content="([^"]+)"/);
+    const ogDescMatch = html.match(/<meta property="og:description" content="([^"]+)"/);
+    const ogImageMatch = html.match(/<meta property="og:image" content="([^"]+)"/);
+    
+    if (ogTitleMatch || ogDescMatch) {
+      return {
+        provided: true,
+        handle,
+        fetched: true,
+        companyName: ogTitleMatch ? ogTitleMatch[1] : null,
+        description: ogDescMatch ? ogDescMatch[1] : null,
+        profileImage: ogImageMatch ? ogImageMatch[1] : null
+      };
+    }
+    
+    return { provided: true, handle, fetched: true, noData: true };
+    
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('LinkedIn fetch error:', errorMessage);
+    return { provided: true, handle, fetched: false, error: errorMessage };
+  }
+}
+
 async function fetchSocialMediaData(handles: any) {
-  console.log('Social media data collection (handles only)');
+  console.log('Fetching social media profiles with OG meta tags');
   
-  const results: any = {
-    instagram: null,
-    x: null,
-    linkedin: null,
-    tiktok: null
-  };
-
+  // Parallel fetch for all provided handles
+  const promises = [];
+  
   if (handles.instagram) {
-    results.instagram = { provided: true, handle: handles.instagram };
+    promises.push(fetchInstagramProfile(handles.instagram));
+  } else {
+    promises.push(Promise.resolve(null));
   }
+  
   if (handles.x) {
-    results.x = { provided: true, handle: handles.x };
+    promises.push(fetchXProfile(handles.x));
+  } else {
+    promises.push(Promise.resolve(null));
   }
+  
   if (handles.linkedin) {
-    results.linkedin = { provided: true, handle: handles.linkedin };
+    promises.push(fetchLinkedInProfile(handles.linkedin));
+  } else {
+    promises.push(Promise.resolve(null));
   }
+  
   if (handles.tiktok) {
-    results.tiktok = { provided: true, handle: handles.tiktok };
+    promises.push(fetchTikTokProfile(handles.tiktok));
+  } else {
+    promises.push(Promise.resolve(null));
   }
-
-  return results;
+  
+  const [instagram, x, linkedin, tiktok] = await Promise.all(promises);
+  
+  return {
+    instagram: instagram || { provided: false },
+    x: x || { provided: false },
+    linkedin: linkedin || { provided: false },
+    tiktok: tiktok || { provided: false }
+  };
 }
 
 // ============= 8 PILLAR AGGREGATION (EXACT N8N STRUCTURE) =============
@@ -576,10 +791,43 @@ function aggregatePillars(data: any) {
 
   // Pillar 3: Social Presence
   const socialProfiles = [];
-  if (data.socialData?.instagram?.provided) socialProfiles.push('instagram');
-  if (data.socialData?.x?.provided) socialProfiles.push('x');
-  if (data.socialData?.linkedin?.provided) socialProfiles.push('linkedin');
-  if (data.socialData?.tiktok?.provided) socialProfiles.push('tiktok');
+  const fetchedProfiles = [];
+  let totalFollowers = 0;
+  
+  if (data.socialData?.instagram?.provided) {
+    socialProfiles.push('instagram');
+    if (data.socialData.instagram.fetched) fetchedProfiles.push('instagram');
+    // Try to parse follower count (handle K, M, B suffixes)
+    if (data.socialData.instagram.followers) {
+      const followers = data.socialData.instagram.followers;
+      const num = parseFloat(followers.replace(/,/g, ''));
+      if (followers.includes('K')) totalFollowers += num * 1000;
+      else if (followers.includes('M')) totalFollowers += num * 1000000;
+      else if (followers.includes('B')) totalFollowers += num * 1000000000;
+      else totalFollowers += num;
+    }
+  }
+  if (data.socialData?.x?.provided) {
+    socialProfiles.push('x');
+    if (data.socialData.x.fetched) fetchedProfiles.push('x');
+  }
+  if (data.socialData?.linkedin?.provided) {
+    socialProfiles.push('linkedin');
+    if (data.socialData.linkedin.fetched) fetchedProfiles.push('linkedin');
+  }
+  if (data.socialData?.tiktok?.provided) {
+    socialProfiles.push('tiktok');
+    if (data.socialData.tiktok.fetched) fetchedProfiles.push('tiktok');
+    // Add TikTok followers
+    if (data.socialData.tiktok.followers) {
+      const followers = data.socialData.tiktok.followers;
+      const num = parseFloat(followers.replace(/,/g, ''));
+      if (followers.includes('K')) totalFollowers += num * 1000;
+      else if (followers.includes('M')) totalFollowers += num * 1000000;
+      else if (followers.includes('B')) totalFollowers += num * 1000000000;
+      else totalFollowers += num;
+    }
+  }
   
   pillars.socialPresence = {
     name: "Social Presence",
@@ -588,7 +836,10 @@ function aggregatePillars(data: any) {
     linkedin: data.socialData?.linkedin || { provided: false },
     tiktok: data.socialData?.tiktok || { provided: false },
     profilesCount: socialProfiles.length,
-    platforms: socialProfiles
+    platforms: socialProfiles,
+    fetchedCount: fetchedProfiles.length,
+    fetchedPlatforms: fetchedProfiles,
+    estimatedTotalFollowers: totalFollowers > 0 ? Math.round(totalFollowers) : null
   };
 
   // Pillar 4: Brand Mentions
