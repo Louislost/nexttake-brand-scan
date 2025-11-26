@@ -80,6 +80,14 @@ async function fetchWithRetry(
   throw lastError || new Error('Max retries exceeded');
 }
 
+// Declare EdgeRuntime for TypeScript
+declare const EdgeRuntime: any;
+
+// Add shutdown event listener for debugging
+addEventListener('beforeunload', (ev: any) => {
+  console.log('Function shutdown:', ev.detail?.reason);
+});
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -127,19 +135,21 @@ serve(async (req) => {
         status: 'processing'
       });
 
-    // Process in background
-    processBrandDiagnostic(supabase, inputId, {
-      brandName,
-      websiteUrl,
-      instagram,
-      x,
-      linkedin,
-      tiktok,
-      industry,
-      market
-    }).catch(error => {
-      console.error('Background processing error:', error);
-    });
+    // Process in background with EdgeRuntime.waitUntil to keep function alive
+    EdgeRuntime.waitUntil(
+      processBrandDiagnostic(supabase, inputId, {
+        brandName,
+        websiteUrl,
+        instagram,
+        x,
+        linkedin,
+        tiktok,
+        industry,
+        market
+      }).catch(error => {
+        console.error('Background processing error:', error);
+      })
+    );
 
     return new Response(
       JSON.stringify({ input_id: inputId, status: 'processing' }),
@@ -157,9 +167,23 @@ serve(async (req) => {
 });
 
 async function processBrandDiagnostic(supabase: any, inputId: string, data: any) {
+  const MAX_PROCESSING_TIME = 540000; // 9 minutes max (Deno Deploy timeout is 10 minutes)
+  
   try {
     console.log('Processing brand diagnostic for input:', inputId);
     const startTime = Date.now();
+    
+    // Set up timeout protection
+    const timeoutCheck = setTimeout(async () => {
+      console.error('Processing timeout reached for:', inputId);
+      await supabase
+        .from('brand_scans_results')
+        .update({
+          status: 'failed',
+          error_message: 'Processing timeout - analysis took too long'
+        })
+        .eq('input_id', inputId);
+    }, MAX_PROCESSING_TIME);
 
     // ============= PHASE 1: CHECK CACHE =============
     const domain = new URL(data.websiteUrl).hostname;
@@ -305,7 +329,7 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
     ]);
 
     // Sequential DuckDuckGo queries with delays to avoid rate limits
-    console.log('Starting staggered DuckDuckGo queries (1.5s delays between queries)');
+    console.log('Starting staggered DuckDuckGo queries (1s delays between queries)');
     
     const fetchDDG = async (fetchFn: () => Promise<any>, type: string) => {
       const fetchStart = Date.now();
@@ -320,19 +344,19 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
     };
     
     const duckduckgoMain = await fetchDDG(() => fetchDuckDuckGoMain(data.brandName), 'main');
-    await delay(1500);
+    await delay(1000);
     
     const duckduckgoNews = await fetchDDG(() => fetchDuckDuckGoNews(data.brandName), 'news');
-    await delay(1500);
+    await delay(1000);
     
     const duckduckgoComplaints = await fetchDDG(() => fetchDuckDuckGoComplaints(data.brandName), 'complaints');
-    await delay(1500);
+    await delay(1000);
     
     const duckduckgoReviews = await fetchDDG(() => fetchDuckDuckGoReviews(data.brandName), 'reviews');
-    await delay(1500);
+    await delay(1000);
     
     const duckduckgoAlternatives = await fetchDDG(() => fetchDuckDuckGoAlternatives(data.brandName), 'alternatives');
-    await delay(1500);
+    await delay(1000);
     
     const duckduckgoContent = await fetchDDG(() => fetchDuckDuckGoContent(domain), 'content');
 
@@ -389,6 +413,9 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
     console.log('Thread and run IDs saved, analysis in progress');
 
     console.log('Brand diagnostic data collection completed for:', inputId, '- waiting for AI analysis');
+    
+    // Clear the timeout since we completed successfully
+    clearTimeout(timeoutCheck);
 
   } catch (error) {
     console.error('Error processing brand diagnostic:', error);
