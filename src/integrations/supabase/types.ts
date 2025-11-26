@@ -14,6 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
+      brand_scan_cache: {
+        Row: {
+          cache_key: string
+          created_at: string | null
+          data: Json
+          expires_at: string
+          id: string
+        }
+        Insert: {
+          cache_key: string
+          created_at?: string | null
+          data: Json
+          expires_at: string
+          id?: string
+        }
+        Update: {
+          cache_key?: string
+          created_at?: string | null
+          data?: Json
+          expires_at?: string
+          id?: string
+        }
+        Relationships: []
+      }
       brand_scan_logs: {
         Row: {
           created_at: string | null
@@ -68,6 +92,7 @@ export type Database = {
           market: string | null
           tiktok: string | null
           user_agent: string | null
+          webhook_url: string | null
           x: string | null
         }
         Insert: {
@@ -82,6 +107,7 @@ export type Database = {
           market?: string | null
           tiktok?: string | null
           user_agent?: string | null
+          webhook_url?: string | null
           x?: string | null
         }
         Update: {
@@ -96,6 +122,7 @@ export type Database = {
           market?: string | null
           tiktok?: string | null
           user_agent?: string | null
+          webhook_url?: string | null
           x?: string | null
         }
         Relationships: []
