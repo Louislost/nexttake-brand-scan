@@ -14,6 +14,47 @@ export type Database = {
   }
   public: {
     Tables: {
+      brand_scan_logs: {
+        Row: {
+          created_at: string | null
+          data_size: number | null
+          duration_ms: number | null
+          error_message: string | null
+          id: string
+          input_id: string | null
+          source: string
+          status: string
+        }
+        Insert: {
+          created_at?: string | null
+          data_size?: number | null
+          duration_ms?: number | null
+          error_message?: string | null
+          id?: string
+          input_id?: string | null
+          source: string
+          status: string
+        }
+        Update: {
+          created_at?: string | null
+          data_size?: number | null
+          duration_ms?: number | null
+          error_message?: string | null
+          id?: string
+          input_id?: string | null
+          source?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "brand_scan_logs_input_id_fkey"
+            columns: ["input_id"]
+            isOneToOne: false
+            referencedRelation: "brand_scans_inputs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       brand_scans_inputs: {
         Row: {
           brand_name: string
@@ -67,6 +108,7 @@ export type Database = {
           input_id: string
           overall_score: number | null
           pillar_scores: Json | null
+          raw_pillars_json: Json | null
           result_json: Json | null
           status: string | null
           updated_at: string
@@ -78,6 +120,7 @@ export type Database = {
           input_id: string
           overall_score?: number | null
           pillar_scores?: Json | null
+          raw_pillars_json?: Json | null
           result_json?: Json | null
           status?: string | null
           updated_at?: string
@@ -89,6 +132,7 @@ export type Database = {
           input_id?: string
           overall_score?: number | null
           pillar_scores?: Json | null
+          raw_pillars_json?: Json | null
           result_json?: Json | null
           status?: string | null
           updated_at?: string

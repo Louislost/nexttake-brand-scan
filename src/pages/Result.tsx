@@ -6,7 +6,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import PillarScoreCard from "@/components/PillarScoreCard";
-import { Award, TrendingUp } from "lucide-react";
+import { Award, TrendingUp, FileText, Lightbulb, ChevronDown } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 
 const Result = () => {
   const [searchParams] = useSearchParams();
@@ -19,6 +24,8 @@ const Result = () => {
   const [overallScore, setOverallScore] = useState<number | null>(null);
   const [status, setStatus] = useState<string>('processing');
   const [pollingCount, setPollingCount] = useState(0);
+  const [summary, setSummary] = useState<string>('');
+  const [recommendations, setRecommendations] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!inputId) {
@@ -49,6 +56,14 @@ const Result = () => {
             setResults(data.result_json);
             setPillarScores(data.pillar_scores);
             setOverallScore(data.overall_score);
+            
+            // Parse summary and recommendations from AI response
+            if (typeof data.result_json === 'object' && data.result_json !== null && !Array.isArray(data.result_json)) {
+              const resultObj = data.result_json as Record<string, any>;
+              setSummary(resultObj.summary || '');
+              setRecommendations(resultObj.recommendations || {});
+            }
+            
             setLoading(false);
             if (pollInterval) clearInterval(pollInterval);
             toast.success("Analysis complete!");
@@ -151,6 +166,19 @@ const Result = () => {
                     </CardContent>
                   </Card>
 
+                  {/* Executive Summary */}
+                  {summary && (
+                    <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border-blue-200 dark:border-blue-800">
+                      <CardContent className="p-6">
+                        <h3 className="text-xl font-bold mb-3 flex items-center gap-2">
+                          <FileText className="w-5 h-5" />
+                          Executive Summary
+                        </h3>
+                        <p className="text-foreground/90 leading-relaxed">{summary}</p>
+                      </CardContent>
+                    </Card>
+                  )}
+
                   {/* Pillar Scores Grid */}
                   {pillarScores && (
                     <div>
@@ -171,18 +199,35 @@ const Result = () => {
                     </div>
                   )}
 
-                  {/* Detailed Results */}
-                  {results && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Detailed Analysis</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <pre className="bg-muted/50 p-4 rounded-md overflow-auto text-sm text-foreground max-h-96">
-                          {JSON.stringify(results, null, 2)}
-                        </pre>
-                      </CardContent>
-                    </Card>
+                  {/* Actionable Recommendations */}
+                  {Object.keys(recommendations).length > 0 && (
+                    <div className="space-y-4">
+                      <h3 className="text-xl font-bold flex items-center gap-2">
+                        <Lightbulb className="w-5 h-5" />
+                        Actionable Recommendations
+                      </h3>
+                      <div className="space-y-3">
+                        {Object.entries(recommendations).map(([pillar, recommendation]) => (
+                          <Collapsible key={pillar}>
+                            <CollapsibleTrigger className="w-full">
+                              <Card className="hover:shadow-md transition-shadow cursor-pointer">
+                                <CardContent className="p-4 flex justify-between items-center">
+                                  <span className="font-semibold capitalize text-left">
+                                    {pillar.replace(/_/g, ' ')}
+                                  </span>
+                                  <ChevronDown className="w-4 h-4 transition-transform ui-expanded:rotate-180" />
+                                </CardContent>
+                              </Card>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent>
+                              <div className="p-4 bg-muted/30 rounded-b-lg border-t mt-[-1px]">
+                                <p className="text-sm text-foreground/80 leading-relaxed">{recommendation}</p>
+                              </div>
+                            </CollapsibleContent>
+                          </Collapsible>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
               )}
