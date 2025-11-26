@@ -74,6 +74,22 @@ const Result = () => {
             if (pollInterval) clearInterval(pollInterval);
             toast.error("Analysis failed");
             return true;
+          } else if (data.status === 'analyzing' && data.thread_id && data.run_id) {
+            // Data collection is done, AI is analyzing
+            // Trigger status check to see if OpenAI has completed
+            try {
+              const { data: statusData, error: statusError } = await supabase.functions.invoke('check-status', {
+                body: { input_id: inputId }
+              });
+
+              if (statusError) {
+                console.error('Status check error:', statusError);
+              } else {
+                console.log('Status check response:', statusData);
+              }
+            } catch (err) {
+              console.error('Failed to check status:', err);
+            }
           }
         }
 
@@ -138,7 +154,9 @@ const Result = () => {
                     <div className="w-16 h-16 rounded-full border-4 border-primary/20 border-t-primary animate-spin"></div>
                   </div>
                   <p className="text-lg font-semibold text-foreground">
-                    {status === 'processing' ? 'Your brand diagnostic is processing…' : 'Loading results…'}
+                    {status === 'processing' ? 'Collecting brand data from multiple sources…' : 
+                     status === 'analyzing' ? 'AI is analyzing your brand data…' : 
+                     'Loading results…'}
                   </p>
                   <p className="text-sm text-muted-foreground">
                     This may take up to 5 minutes. We're analyzing multiple data sources.

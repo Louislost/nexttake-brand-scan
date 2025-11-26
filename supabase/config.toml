@@ -2,3 +2,6 @@ project_id = "axxanjpzbmhbtizgqjwc"
 
 [functions.brand-diagnostic]
 verify_jwt = false
+
+[functions.check-status]
+verify_jwt = false

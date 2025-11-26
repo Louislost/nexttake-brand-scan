@@ -137,7 +137,9 @@ export type Database = {
           pillar_scores: Json | null
           raw_pillars_json: Json | null
           result_json: Json | null
+          run_id: string | null
           status: string | null
+          thread_id: string | null
           updated_at: string
         }
         Insert: {
@@ -149,7 +151,9 @@ export type Database = {
           pillar_scores?: Json | null
           raw_pillars_json?: Json | null
           result_json?: Json | null
+          run_id?: string | null
           status?: string | null
+          thread_id?: string | null
           updated_at?: string
         }
         Update: {
@@ -161,7 +165,9 @@ export type Database = {
           pillar_scores?: Json | null
           raw_pillars_json?: Json | null
           result_json?: Json | null
+          run_id?: string | null
           status?: string | null
+          thread_id?: string | null
           updated_at?: string
         }
         Relationships: [
