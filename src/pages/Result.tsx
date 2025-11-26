@@ -60,8 +60,32 @@ const Result = () => {
             // Parse summary and recommendations from AI response
             if (typeof data.result_json === 'object' && data.result_json !== null && !Array.isArray(data.result_json)) {
               const resultObj = data.result_json as Record<string, any>;
-              setSummary(resultObj.summary || '');
-              setRecommendations(resultObj.recommendations || {});
+              
+              // Handle new AI format with summary object
+              if (resultObj.summary && typeof resultObj.summary === 'object') {
+                const summaryObj = resultObj.summary as Record<string, any>;
+                setSummary(summaryObj.one_line || '');
+                
+                // Convert summary fields to recommendations format for display
+                const recs: Record<string, string> = {};
+                if (summaryObj.strengths && Array.isArray(summaryObj.strengths)) {
+                  recs.strengths = summaryObj.strengths.join(', ');
+                }
+                if (summaryObj.weaknesses && Array.isArray(summaryObj.weaknesses)) {
+                  recs.weaknesses = summaryObj.weaknesses.join(', ');
+                }
+                if (summaryObj.opportunities && Array.isArray(summaryObj.opportunities)) {
+                  recs.opportunities = summaryObj.opportunities.join(', ');
+                }
+                if (summaryObj.risks && Array.isArray(summaryObj.risks)) {
+                  recs.risks = summaryObj.risks.join(', ');
+                }
+                setRecommendations(recs);
+              } else {
+                // Handle old format
+                setSummary(resultObj.summary || '');
+                setRecommendations(resultObj.recommendations || {});
+              }
             }
             
             setLoading(false);
@@ -222,10 +246,10 @@ const Result = () => {
                     <div className="space-y-4">
                       <h3 className="text-xl font-bold flex items-center gap-2">
                         <Lightbulb className="w-5 h-5" />
-                        Actionable Recommendations
+                        Key Insights
                       </h3>
                       <div className="space-y-3">
-                        {Object.entries(recommendations).map(([pillar, recommendation]) => (
+                        {Object.entries(recommendations).map(([pillar, content]) => (
                           <Collapsible key={pillar}>
                             <CollapsibleTrigger className="w-full">
                               <Card className="hover:shadow-md transition-shadow cursor-pointer">
@@ -239,7 +263,7 @@ const Result = () => {
                             </CollapsibleTrigger>
                             <CollapsibleContent>
                               <div className="p-4 bg-muted/30 rounded-b-lg border-t mt-[-1px]">
-                                <p className="text-sm text-foreground/80 leading-relaxed">{recommendation}</p>
+                                <p className="text-sm text-foreground/80 leading-relaxed">{content}</p>
                               </div>
                             </CollapsibleContent>
                           </Collapsible>
