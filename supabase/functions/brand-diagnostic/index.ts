@@ -80,29 +80,6 @@ async function fetchWithRetry(
   throw lastError || new Error('Max retries exceeded');
 }
 
-// ============= WEBHOOK NOTIFICATION =============
-async function sendWebhookNotification(webhookUrl: string, payload: any) {
-  try {
-    console.log('Sending webhook notification to:', webhookUrl);
-    const response = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'BrandDiagnostic/1.0'
-      },
-      body: JSON.stringify(payload)
-    });
-    
-    if (!response.ok) {
-      console.error('Webhook notification failed:', response.status, response.statusText);
-    } else {
-      console.log('Webhook notification sent successfully');
-    }
-  } catch (error) {
-    console.error('Webhook notification error:', error);
-  }
-}
-
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -114,7 +91,7 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { brandName, websiteUrl, instagram, x, linkedin, tiktok, industry, market, webhookUrl } = await req.json();
+    const { brandName, websiteUrl, instagram, x, linkedin, tiktok, industry, market } = await req.json();
     
     console.log('Starting brand diagnostic for:', brandName);
 
@@ -130,7 +107,6 @@ serve(async (req) => {
         tiktok,
         industry,
         market,
-        webhook_url: webhookUrl || null,
         user_agent: req.headers.get('user-agent'),
         ip_address: req.headers.get('x-forwarded-for')
       })
@@ -160,8 +136,7 @@ serve(async (req) => {
       linkedin,
       tiktok,
       industry,
-      market,
-      webhookUrl
+      market
     }).catch(error => {
       console.error('Background processing error:', error);
     });
@@ -212,18 +187,6 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
           status: 'completed'
         })
         .eq('input_id', inputId);
-
-      // Send webhook if provided
-      if (data.webhookUrl) {
-        await sendWebhookNotification(data.webhookUrl, {
-          input_id: inputId,
-          status: 'completed',
-          overall_score: cached.overall_score,
-          pillar_scores: cached.pillar_scores,
-          brand_name: data.brandName,
-          cached: true
-        });
-      }
 
       console.log('Cached result returned for:', inputId);
       return;
@@ -438,18 +401,6 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
 
     console.log('Results cached with key:', cacheKey);
 
-    // ============= PHASE 7: SEND WEBHOOK =============
-    if (data.webhookUrl) {
-      await sendWebhookNotification(data.webhookUrl, {
-        input_id: inputId,
-        status: 'completed',
-        overall_score: overallScore,
-        pillar_scores: pillarScores,
-        brand_name: data.brandName,
-        cached: false
-      });
-    }
-
     console.log('Brand diagnostic completed for:', inputId);
 
   } catch (error) {
@@ -463,16 +414,6 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
         error_message: errorMessage
       })
       .eq('input_id', inputId);
-
-    // Send webhook with failure status
-    if (data.webhookUrl) {
-      await sendWebhookNotification(data.webhookUrl, {
-        input_id: inputId,
-        status: 'failed',
-        error: errorMessage,
-        brand_name: data.brandName
-      });
-    }
   }
 }
 
