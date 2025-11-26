@@ -86,18 +86,30 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
   try {
     console.log('Processing brand diagnostic for input:', inputId);
 
-    // Parallel data collection
+    // Parallel data collection - all 6 DDG queries + website + RSS + Wikipedia + Wayback + social
     const [
       websiteData,
+      rssData,
       wikipediaData,
       waybackData,
-      duckduckgoData,
+      duckduckgoMain,
+      duckduckgoNews,
+      duckduckgoComplaints,
+      duckduckgoReviews,
+      duckduckgoAlternatives,
+      duckduckgoContent,
       socialData
     ] = await Promise.all([
       fetchWebsiteData(data.websiteUrl),
+      fetchRSSFeed(data.websiteUrl),
       fetchWikipediaData(data.brandName),
       fetchWaybackData(data.websiteUrl),
-      fetchDuckDuckGoData(data.brandName),
+      fetchDuckDuckGoMain(data.brandName),
+      fetchDuckDuckGoNews(data.brandName),
+      fetchDuckDuckGoComplaints(data.brandName),
+      fetchDuckDuckGoReviews(data.brandName),
+      fetchDuckDuckGoAlternatives(data.brandName),
+      fetchDuckDuckGoContent(data.brandName),
       fetchSocialMediaData({
         instagram: data.instagram,
         x: data.x,
@@ -106,14 +118,22 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
       })
     ]);
 
-    // Aggregate 8 pillars
+    // Aggregate 8 pillars with complete data
     const pillars = aggregatePillars({
       brandName: data.brandName,
       websiteUrl: data.websiteUrl,
       websiteData,
+      rssData,
       wikipediaData,
       waybackData,
-      duckduckgoData,
+      duckduckgoData: {
+        main: duckduckgoMain,
+        news: duckduckgoNews,
+        complaints: duckduckgoComplaints,
+        reviews: duckduckgoReviews,
+        alternatives: duckduckgoAlternatives,
+        content: duckduckgoContent
+      },
       socialData,
       industry: data.industry,
       market: data.market
@@ -158,6 +178,7 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
   }
 }
 
+// ============= ENHANCED WEBSITE METADATA EXTRACTION =============
 async function fetchWebsiteData(url: string) {
   try {
     console.log('Fetching website:', url);
@@ -169,15 +190,42 @@ async function fetchWebsiteData(url: string) {
     
     const html = await response.text();
     
-    // Extract metadata using regex (graceful fallback without HTML parser)
+    // Extract comprehensive metadata
     const metadata = {
-      title: html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1] || '',
-      description: html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([^"']+)["']/i)?.[1] || '',
-      ogTitle: html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i)?.[1] || '',
-      ogDescription: html.match(/<meta[^>]*property=["']og:description["'][^>]*content=["']([^"']+)["']/i)?.[1] || '',
-      rss: html.match(/type=["']application\/rss\+xml["'][^>]*href=["']([^"']+)["']/i)?.[1] || null,
+      // Standard meta tags
+      title: html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]?.trim() || '',
+      description: html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([^"']+)["']/i)?.[1]?.trim() || '',
+      keywords: html.match(/<meta[^>]*name=["']keywords["'][^>]*content=["']([^"']+)["']/i)?.[1]?.trim() || '',
+      author: html.match(/<meta[^>]*name=["']author["'][^>]*content=["']([^"']+)["']/i)?.[1]?.trim() || '',
+      robots: html.match(/<meta[^>]*name=["']robots["'][^>]*content=["']([^"']+)["']/i)?.[1]?.trim() || '',
+      
+      // Open Graph tags
+      ogTitle: html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i)?.[1]?.trim() || '',
+      ogDescription: html.match(/<meta[^>]*property=["']og:description["'][^>]*content=["']([^"']+)["']/i)?.[1]?.trim() || '',
+      ogImage: html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i)?.[1]?.trim() || '',
+      ogUrl: html.match(/<meta[^>]*property=["']og:url["'][^>]*content=["']([^"']+)["']/i)?.[1]?.trim() || '',
+      ogType: html.match(/<meta[^>]*property=["']og:type["'][^>]*content=["']([^"']+)["']/i)?.[1]?.trim() || '',
+      ogSiteName: html.match(/<meta[^>]*property=["']og:site_name["'][^>]*content=["']([^"']+)["']/i)?.[1]?.trim() || '',
+      
+      // Twitter Card tags
+      twitterCard: html.match(/<meta[^>]*name=["']twitter:card["'][^>]*content=["']([^"']+)["']/i)?.[1]?.trim() || '',
+      twitterSite: html.match(/<meta[^>]*name=["']twitter:site["'][^>]*content=["']([^"']+)["']/i)?.[1]?.trim() || '',
+      twitterTitle: html.match(/<meta[^>]*name=["']twitter:title["'][^>]*content=["']([^"']+)["']/i)?.[1]?.trim() || '',
+      twitterDescription: html.match(/<meta[^>]*name=["']twitter:description["'][^>]*content=["']([^"']+)["']/i)?.[1]?.trim() || '',
+      twitterImage: html.match(/<meta[^>]*name=["']twitter:image["'][^>]*content=["']([^"']+)["']/i)?.[1]?.trim() || '',
+      
+      // Link tags
+      canonical: html.match(/<link[^>]*rel=["']canonical["'][^>]*href=["']([^"']+)["']/i)?.[1]?.trim() || '',
+      favicon: html.match(/<link[^>]*rel=["'](?:icon|shortcut icon)["'][^>]*href=["']([^"']+)["']/i)?.[1]?.trim() || '',
+      rssUrl: html.match(/<link[^>]*type=["']application\/(?:rss|atom)\+xml["'][^>]*href=["']([^"']+)["']/i)?.[1]?.trim() || null,
+      
+      // HTML structure detection
       hasContactPage: /contact|kontakt|nous-contacter/i.test(html),
-      hasAboutPage: /about|à-propos|über-uns/i.test(html)
+      hasAboutPage: /about|à-propos|über-uns/i.test(html),
+      hasBlogSection: /blog|articles|news|actualités/i.test(html),
+      
+      // Schema.org structured data
+      schemaOrg: extractSchemaOrg(html)
     };
 
     return { success: true, metadata, htmlLength: html.length };
@@ -188,6 +236,214 @@ async function fetchWebsiteData(url: string) {
   }
 }
 
+function extractSchemaOrg(html: string) {
+  try {
+    const schemaMatches = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
+    if (!schemaMatches) return null;
+    
+    const schemas = [];
+    for (const match of schemaMatches) {
+      const jsonContent = match.replace(/<script[^>]*>/i, '').replace(/<\/script>/i, '').trim();
+      try {
+        const parsed = JSON.parse(jsonContent);
+        schemas.push(parsed);
+      } catch {
+        // Skip invalid JSON
+      }
+    }
+    return schemas.length > 0 ? schemas : null;
+  } catch {
+    return null;
+  }
+}
+
+// ============= RSS FEED PARSING =============
+async function fetchRSSFeed(websiteUrl: string) {
+  try {
+    console.log('Detecting RSS feed for:', websiteUrl);
+    
+    // First fetch the website to detect RSS URL
+    const response = await fetch(websiteUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; BrandDiagnostic/1.0)'
+      }
+    });
+    const html = await response.text();
+    
+    // Find RSS feed URL
+    const rssUrlMatch = html.match(/<link[^>]*type=["']application\/(?:rss|atom)\+xml["'][^>]*href=["']([^"']+)["']/i);
+    if (!rssUrlMatch) {
+      console.log('No RSS feed found');
+      return { success: true, found: false };
+    }
+    
+    let rssUrl = rssUrlMatch[1].trim();
+    
+    // Handle relative URLs
+    if (rssUrl.startsWith('/')) {
+      const urlObj = new URL(websiteUrl);
+      rssUrl = `${urlObj.protocol}//${urlObj.host}${rssUrl}`;
+    } else if (!rssUrl.startsWith('http')) {
+      const urlObj = new URL(websiteUrl);
+      rssUrl = `${urlObj.protocol}//${urlObj.host}/${rssUrl}`;
+    }
+    
+    console.log('Fetching RSS feed:', rssUrl);
+    
+    // Fetch the RSS feed
+    const rssResponse = await fetch(rssUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; BrandDiagnostic/1.0)'
+      }
+    });
+    
+    if (!rssResponse.ok) {
+      return { success: true, found: true, fetchFailed: true, rssUrl };
+    }
+    
+    const rssXml = await rssResponse.text();
+    
+    // Parse RSS items (basic XML parsing with regex)
+    const items = [];
+    const itemMatches = rssXml.matchAll(/<item[^>]*>([\s\S]*?)<\/item>/gi);
+    
+    for (const itemMatch of itemMatches) {
+      const itemContent = itemMatch[1];
+      const item = {
+        title: itemContent.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/, '$1').trim() || '',
+        link: itemContent.match(/<link[^>]*>([\s\S]*?)<\/link>/i)?.[1]?.trim() || '',
+        pubDate: itemContent.match(/<pubDate[^>]*>([\s\S]*?)<\/pubDate>/i)?.[1]?.trim() || '',
+        description: itemContent.match(/<description[^>]*>([\s\S]*?)<\/description>/i)?.[1]?.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/, '$1').trim() || ''
+      };
+      items.push(item);
+      
+      // Limit to 10 items
+      if (items.length >= 10) break;
+    }
+    
+    // Calculate publishing frequency
+    const frequency = calculatePublishingFrequency(items);
+    
+    return {
+      success: true,
+      found: true,
+      rssUrl,
+      itemsCount: items.length,
+      recentPosts: items,
+      frequency
+    };
+    
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('RSS fetch failed:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+
+function calculatePublishingFrequency(items: any[]) {
+  if (items.length < 2) return 'insufficient_data';
+  
+  try {
+    const dates = items
+      .map(item => item.pubDate)
+      .filter(d => d)
+      .map(d => new Date(d))
+      .filter(d => !isNaN(d.getTime()))
+      .sort((a, b) => b.getTime() - a.getTime());
+    
+    if (dates.length < 2) return 'insufficient_data';
+    
+    // Calculate average days between posts
+    let totalDays = 0;
+    for (let i = 0; i < dates.length - 1; i++) {
+      const diff = dates[i].getTime() - dates[i + 1].getTime();
+      totalDays += diff / (1000 * 60 * 60 * 24);
+    }
+    const avgDays = totalDays / (dates.length - 1);
+    
+    if (avgDays < 1) return 'multiple_per_day';
+    if (avgDays < 7) return 'weekly';
+    if (avgDays < 30) return 'monthly';
+    return 'infrequent';
+    
+  } catch {
+    return 'calculation_error';
+  }
+}
+
+// ============= 6 DUCKDUCKGO QUERIES =============
+async function fetchDuckDuckGoMain(brandName: string) {
+  return fetchDuckDuckGo(brandName, 'main');
+}
+
+async function fetchDuckDuckGoNews(brandName: string) {
+  return fetchDuckDuckGo(`${brandName} news`, 'news');
+}
+
+async function fetchDuckDuckGoComplaints(brandName: string) {
+  return fetchDuckDuckGo(`${brandName} complaints`, 'complaints');
+}
+
+async function fetchDuckDuckGoReviews(brandName: string) {
+  return fetchDuckDuckGo(`${brandName} reviews`, 'reviews');
+}
+
+async function fetchDuckDuckGoAlternatives(brandName: string) {
+  return fetchDuckDuckGo(`${brandName} alternatives`, 'alternatives');
+}
+
+async function fetchDuckDuckGoContent(brandName: string) {
+  return fetchDuckDuckGo(`${brandName} content marketing`, 'content');
+}
+
+async function fetchDuckDuckGo(query: string, type: string) {
+  try {
+    console.log(`Fetching DuckDuckGo ${type} for:`, query);
+    
+    const response = await fetch(
+      `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+      }
+    );
+    
+    if (!response.ok) {
+      return { success: false, blocked: true, type };
+    }
+    
+    const html = await response.text();
+    
+    // Extract result snippets
+    const snippets = [];
+    const resultMatches = html.matchAll(/<a[^>]*class=["'][^"']*result__snippet[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi);
+    for (const match of resultMatches) {
+      const snippet = match[1].replace(/<[^>]+>/g, '').trim();
+      if (snippet) snippets.push(snippet);
+      if (snippets.length >= 5) break;
+    }
+    
+    // Estimate result count
+    const resultElements = html.match(/result__/g);
+    const resultsCount = resultElements ? resultElements.length : 0;
+    
+    return {
+      success: true,
+      type,
+      query,
+      resultsCount,
+      snippets
+    };
+    
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`DuckDuckGo ${type} fetch failed:`, errorMessage);
+    return { success: false, type, error: errorMessage };
+  }
+}
+
+// ============= WIKIPEDIA DATA =============
 async function fetchWikipediaData(brandName: string) {
   try {
     console.log('Fetching Wikipedia for:', brandName);
@@ -214,6 +470,7 @@ async function fetchWikipediaData(brandName: string) {
   }
 }
 
+// ============= WAYBACK MACHINE DATA =============
 async function fetchWaybackData(url: string) {
   try {
     console.log('Fetching Wayback Machine for:', url);
@@ -225,11 +482,23 @@ async function fetchWaybackData(url: string) {
     
     if (data.archived_snapshots?.closest) {
       const snapshot = data.archived_snapshots.closest;
+      
+      // Calculate domain age from timestamp
+      const timestamp = snapshot.timestamp; // Format: YYYYMMDDHHMMSS
+      const year = parseInt(timestamp.substring(0, 4));
+      const month = parseInt(timestamp.substring(4, 6));
+      const day = parseInt(timestamp.substring(6, 8));
+      const firstSeen = new Date(year, month - 1, day);
+      const now = new Date();
+      const ageYears = (now.getTime() - firstSeen.getTime()) / (1000 * 60 * 60 * 24 * 365);
+      
       return {
         success: true,
         available: true,
-        timestamp: snapshot.timestamp,
-        url: snapshot.url
+        timestamp,
+        url: snapshot.url,
+        firstSeen: firstSeen.toISOString(),
+        ageYears: Math.round(ageYears * 10) / 10
       };
     }
     
@@ -241,41 +510,9 @@ async function fetchWaybackData(url: string) {
   }
 }
 
-async function fetchDuckDuckGoData(brandName: string) {
-  try {
-    console.log('Fetching DuckDuckGo for:', brandName);
-    
-    // Attempt basic search (will likely be blocked or rate-limited)
-    const response = await fetch(
-      `https://html.duckduckgo.com/html/?q=${encodeURIComponent(brandName)}`,
-      {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; BrandDiagnostic/1.0)'
-        }
-      }
-    );
-    
-    if (response.ok) {
-      const html = await response.text();
-      // Basic result count estimation
-      const resultMatches = html.match(/result__/g);
-      return {
-        success: true,
-        resultsEstimate: resultMatches ? resultMatches.length : 0
-      };
-    }
-    
-    return { success: false, blocked: true };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error('DuckDuckGo fetch failed (expected):', errorMessage);
-    return { success: false, error: errorMessage };
-  }
-}
-
+// ============= SOCIAL MEDIA DATA =============
 async function fetchSocialMediaData(handles: any) {
-  // Social media scraping is blocked - return graceful fallbacks
-  console.log('Social media data collection (graceful fallback)');
+  console.log('Social media data collection (handles only)');
   
   const results: any = {
     instagram: null,
@@ -284,7 +521,6 @@ async function fetchSocialMediaData(handles: any) {
     tiktok: null
   };
 
-  // We can only verify if URLs are provided
   if (handles.instagram) {
     results.instagram = { provided: true, handle: handles.instagram };
   }
@@ -301,121 +537,199 @@ async function fetchSocialMediaData(handles: any) {
   return results;
 }
 
+// ============= 8 PILLAR AGGREGATION (EXACT N8N STRUCTURE) =============
 function aggregatePillars(data: any) {
   const pillars: any = {};
 
   // Pillar 1: Search Visibility
   pillars.searchVisibility = {
     name: "Search Visibility",
-    sources: {
-      duckduckgo: data.duckduckgoData?.success ? 'available' : 'blocked',
-      resultsCount: data.duckduckgoData?.resultsEstimate || 0
-    },
-    status: data.duckduckgoData?.success ? 'partial' : 'limited'
+    mainSearchResults: data.duckduckgoData?.main?.resultsCount || 0,
+    newsResults: data.duckduckgoData?.news?.resultsCount || 0,
+    contentResults: data.duckduckgoData?.content?.resultsCount || 0,
+    totalSearchVisibility: (data.duckduckgoData?.main?.resultsCount || 0) + 
+                           (data.duckduckgoData?.news?.resultsCount || 0) + 
+                           (data.duckduckgoData?.content?.resultsCount || 0),
+    searchSnippets: {
+      main: data.duckduckgoData?.main?.snippets || [],
+      news: data.duckduckgoData?.news?.snippets || [],
+      content: data.duckduckgoData?.content?.snippets || []
+    }
   };
 
   // Pillar 2: Digital Authority
   pillars.digitalAuthority = {
     name: "Digital Authority",
-    sources: {
-      wikipedia: data.wikipediaData?.exists ? 'found' : 'not_found',
-      wikipediaExtract: data.wikipediaData?.extract || null,
-      waybackArchive: data.waybackData?.available ? 'archived' : 'not_archived',
-      waybackTimestamp: data.waybackData?.timestamp || null
+    wikipedia: {
+      exists: data.wikipediaData?.exists || false,
+      extract: data.wikipediaData?.extract || null,
+      url: data.wikipediaData?.pageUrl || null
     },
-    status: 'available'
+    wayback: {
+      available: data.waybackData?.available || false,
+      timestamp: data.waybackData?.timestamp || null,
+      firstSeen: data.waybackData?.firstSeen || null,
+      ageYears: data.waybackData?.ageYears || null
+    },
+    domainAge: data.waybackData?.ageYears || null
   };
 
   // Pillar 3: Social Presence
+  const socialProfiles = [];
+  if (data.socialData?.instagram?.provided) socialProfiles.push('instagram');
+  if (data.socialData?.x?.provided) socialProfiles.push('x');
+  if (data.socialData?.linkedin?.provided) socialProfiles.push('linkedin');
+  if (data.socialData?.tiktok?.provided) socialProfiles.push('tiktok');
+  
   pillars.socialPresence = {
     name: "Social Presence",
-    sources: {
-      instagram: data.socialData?.instagram?.provided ? 'provided' : 'missing',
-      x: data.socialData?.x?.provided ? 'provided' : 'missing',
-      linkedin: data.socialData?.linkedin?.provided ? 'provided' : 'missing',
-      tiktok: data.socialData?.tiktok?.provided ? 'provided' : 'missing'
-    },
-    status: 'partial'
+    instagram: data.socialData?.instagram || { provided: false },
+    x: data.socialData?.x || { provided: false },
+    linkedin: data.socialData?.linkedin || { provided: false },
+    tiktok: data.socialData?.tiktok || { provided: false },
+    profilesCount: socialProfiles.length,
+    platforms: socialProfiles
   };
 
   // Pillar 4: Brand Mentions
+  const totalMentions = (data.duckduckgoData?.main?.resultsCount || 0) + 
+                        (data.duckduckgoData?.news?.resultsCount || 0) + 
+                        (data.duckduckgoData?.reviews?.resultsCount || 0);
+  
   pillars.brandMentions = {
     name: "Brand Mentions",
-    sources: {
-      searchResults: data.duckduckgoData?.resultsEstimate || 0
-    },
-    status: 'limited'
+    totalMentions,
+    newsMentions: data.duckduckgoData?.news?.resultsCount || 0,
+    reviewMentions: data.duckduckgoData?.reviews?.resultsCount || 0,
+    snippets: [
+      ...(data.duckduckgoData?.main?.snippets || []).slice(0, 3),
+      ...(data.duckduckgoData?.news?.snippets || []).slice(0, 2)
+    ]
   };
 
   // Pillar 5: Sentiment Analysis
   pillars.sentimentAnalysis = {
     name: "Sentiment Analysis",
-    sources: {
-      websiteContent: data.websiteData?.success ? 'available' : 'unavailable'
-    },
-    status: data.websiteData?.success ? 'partial' : 'limited'
+    complaintsFound: data.duckduckgoData?.complaints?.resultsCount || 0,
+    reviewsFound: data.duckduckgoData?.reviews?.resultsCount || 0,
+    complaintsSnippets: data.duckduckgoData?.complaints?.snippets || [],
+    reviewsSnippets: data.duckduckgoData?.reviews?.snippets || [],
+    sentimentIndicators: {
+      hasComplaints: (data.duckduckgoData?.complaints?.resultsCount || 0) > 0,
+      hasReviews: (data.duckduckgoData?.reviews?.resultsCount || 0) > 0
+    }
   };
 
   // Pillar 6: Content Footprint
   pillars.contentFootprint = {
     name: "Content Footprint",
-    sources: {
-      website: data.websiteData?.success ? 'available' : 'unavailable',
-      rss: data.websiteData?.metadata?.rss ? 'found' : 'not_found',
-      htmlSize: data.websiteData?.htmlLength || 0
+    websiteMetadata: data.websiteData?.metadata || {},
+    rss: {
+      found: data.rssData?.found || false,
+      url: data.rssData?.rssUrl || null,
+      itemsCount: data.rssData?.itemsCount || 0,
+      frequency: data.rssData?.frequency || 'unknown',
+      recentPosts: data.rssData?.recentPosts || []
     },
-    status: data.websiteData?.success ? 'available' : 'limited'
+    blogDetected: data.websiteData?.metadata?.hasBlogSection || false,
+    contentSearchResults: data.duckduckgoData?.content?.resultsCount || 0,
+    htmlSize: data.websiteData?.htmlLength || 0
   };
 
   // Pillar 7: Brand Consistency
+  const titles = [
+    data.websiteData?.metadata?.title,
+    data.websiteData?.metadata?.ogTitle,
+    data.websiteData?.metadata?.twitterTitle
+  ].filter(t => t);
+  
   pillars.brandConsistency = {
     name: "Brand Consistency",
-    sources: {
-      websiteMetadata: data.websiteData?.metadata || {},
-      multipleProfiles: Object.values(data.socialData || {}).filter((v: any) => v?.provided).length
-    },
-    status: 'partial'
+    websiteTitle: data.websiteData?.metadata?.title || '',
+    ogTitle: data.websiteData?.metadata?.ogTitle || '',
+    twitterTitle: data.websiteData?.metadata?.twitterTitle || '',
+    ogSiteName: data.websiteData?.metadata?.ogSiteName || '',
+    socialProfiles: socialProfiles,
+    consistencyCheck: {
+      titlesProvided: titles.length,
+      allTitlesMatch: titles.length > 1 && titles.every(t => t === titles[0]),
+      socialProfilesCount: socialProfiles.length
+    }
   };
 
   // Pillar 8: Competitive Landscape
   pillars.competitiveLandscape = {
     name: "Competitive Landscape",
-    sources: {
-      industry: data.industry || 'unknown',
-      market: data.market || 'unknown'
-    },
-    status: 'available'
+    industry: data.industry || 'not_specified',
+    market: data.market || 'not_specified',
+    alternativesFound: data.duckduckgoData?.alternatives?.resultsCount || 0,
+    alternativesSnippets: data.duckduckgoData?.alternatives?.snippets || [],
+    competitiveIndicators: {
+      hasAlternatives: (data.duckduckgoData?.alternatives?.resultsCount || 0) > 0,
+      industrySpecified: !!data.industry,
+      marketSpecified: !!data.market
+    }
   };
 
   return pillars;
 }
 
+// ============= ENHANCED AI PAYLOAD =============
 function buildAIPayload(brandName: string, pillars: any) {
   return {
     brand_name: brandName,
+    analysis_date: new Date().toISOString(),
     pillars: pillars,
-    instructions: `Analyze this brand diagnostic data and provide scores (0-100) for each of the 8 pillars:
-    1. Search Visibility
-    2. Digital Authority
-    3. Social Presence
-    4. Brand Mentions
-    5. Sentiment Analysis
-    6. Content Footprint
-    7. Brand Consistency
-    8. Competitive Landscape
-    
-    Consider that some data sources may be limited or blocked. Focus on available data and provide insights.
-    Return a structured JSON response with scores and recommendations for each pillar.`
+    data_sources: {
+      website: pillars.contentFootprint?.websiteMetadata ? 'available' : 'unavailable',
+      wikipedia: pillars.digitalAuthority?.wikipedia?.exists ? 'available' : 'unavailable',
+      wayback: pillars.digitalAuthority?.wayback?.available ? 'available' : 'unavailable',
+      duckduckgo: 'partial',
+      social_media: 'handles_only',
+      rss: pillars.contentFootprint?.rss?.found ? 'available' : 'unavailable'
+    },
+    instructions: `Analyze this comprehensive brand diagnostic data and provide scores (0-100) for each of the 8 pillars:
+
+1. Search Visibility - Evaluate based on search results across main, news, and content queries
+2. Digital Authority - Consider Wikipedia presence, domain age, and archived history
+3. Social Presence - Assess number and variety of social media profiles
+4. Brand Mentions - Analyze total mentions, news coverage, and review presence
+5. Sentiment Analysis - Evaluate based on complaints vs reviews ratio and snippets
+6. Content Footprint - Consider website metadata, RSS feed, blog presence, and content marketing
+7. Brand Consistency - Check consistency across titles, metadata, and social profiles
+8. Competitive Landscape - Assess industry positioning and alternatives found
+
+IMPORTANT NOTES:
+- DuckDuckGo data may be limited or blocked (rate limits)
+- Social media data is handles only (no real metrics scraped)
+- Focus on available data and provide realistic scores
+- Provide specific recommendations for each pillar based on gaps found
+
+Return a structured JSON response with:
+{
+  "search_visibility_score": 0-100,
+  "digital_authority_score": 0-100,
+  "social_presence_score": 0-100,
+  "brand_mentions_score": 0-100,
+  "sentiment_analysis_score": 0-100,
+  "content_footprint_score": 0-100,
+  "brand_consistency_score": 0-100,
+  "competitive_landscape_score": 0-100,
+  "recommendations": {
+    "pillar_name": "specific actionable recommendation"
+  },
+  "summary": "overall brand health summary"
+}`
   };
 }
 
+// ============= OPENAI ASSISTANT API V2 =============
 async function callOpenAIAssistant(payload: any) {
   const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
   const ASSISTANT_ID = 'asst_b7HEiJmlfVfr2j2yWRfJm4Wb';
 
   console.log('Creating thread...');
   
-  // Create thread
   const threadResponse = await fetch('https://api.openai.com/v1/threads', {
     method: 'POST',
     headers: {
@@ -431,7 +745,6 @@ async function callOpenAIAssistant(payload: any) {
 
   console.log('Adding message to thread:', threadId);
 
-  // Add message
   await fetch(`https://api.openai.com/v1/threads/${threadId}/messages`, {
     method: 'POST',
     headers: {
@@ -441,13 +754,12 @@ async function callOpenAIAssistant(payload: any) {
     },
     body: JSON.stringify({
       role: 'user',
-      content: JSON.stringify(payload)
+      content: JSON.stringify(payload, null, 2)
     })
   });
 
   console.log('Creating run...');
 
-  // Create run
   const runResponse = await fetch(`https://api.openai.com/v1/threads/${threadId}/runs`, {
     method: 'POST',
     headers: {
@@ -465,13 +777,12 @@ async function callOpenAIAssistant(payload: any) {
 
   console.log('Polling for completion...');
 
-  // Poll for completion
   let runStatus = run.status;
   let attempts = 0;
-  const maxAttempts = 60; // 5 minutes max
+  const maxAttempts = 60;
 
   while (runStatus !== 'completed' && runStatus !== 'failed' && attempts < maxAttempts) {
-    await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+    await new Promise(resolve => setTimeout(resolve, 5000));
     
     const statusResponse = await fetch(`https://api.openai.com/v1/threads/${threadId}/runs/${runId}`, {
       headers: {
@@ -493,7 +804,6 @@ async function callOpenAIAssistant(payload: any) {
 
   console.log('Retrieving messages...');
 
-  // Get messages
   const messagesResponse = await fetch(`https://api.openai.com/v1/threads/${threadId}/messages`, {
     headers: {
       'Authorization': `Bearer ${OPENAI_API_KEY}`,
@@ -511,17 +821,15 @@ async function callOpenAIAssistant(payload: any) {
   const textContent = assistantMessage.content.find((c: any) => c.type === 'text');
   const responseText = textContent?.text?.value || '';
 
-  // Try to parse JSON from response
   try {
     return JSON.parse(responseText);
   } catch {
-    // If not JSON, return as text
     return { raw_response: responseText };
   }
 }
 
+// ============= SCORE EXTRACTION =============
 function extractPillarScores(assistantResult: any) {
-  // Extract scores from assistant response
   const scores: any = {
     searchVisibility: assistantResult.search_visibility_score || 50,
     digitalAuthority: assistantResult.digital_authority_score || 50,
