@@ -11,6 +11,15 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// MD5 hash function for cache keys
+async function md5(text: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text);
+  const hashBuffer = await crypto.subtle.digest('MD5', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 // Helper function to log fetch results for internal debugging
 async function logFetchResult(
   supabase: any,
@@ -71,6 +80,29 @@ async function fetchWithRetry(
   throw lastError || new Error('Max retries exceeded');
 }
 
+// ============= WEBHOOK NOTIFICATION =============
+async function sendWebhookNotification(webhookUrl: string, payload: any) {
+  try {
+    console.log('Sending webhook notification to:', webhookUrl);
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'BrandDiagnostic/1.0'
+      },
+      body: JSON.stringify(payload)
+    });
+    
+    if (!response.ok) {
+      console.error('Webhook notification failed:', response.status, response.statusText);
+    } else {
+      console.log('Webhook notification sent successfully');
+    }
+  } catch (error) {
+    console.error('Webhook notification error:', error);
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -82,7 +114,7 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { brandName, websiteUrl, instagram, x, linkedin, tiktok, industry, market } = await req.json();
+    const { brandName, websiteUrl, instagram, x, linkedin, tiktok, industry, market, webhookUrl } = await req.json();
     
     console.log('Starting brand diagnostic for:', brandName);
 
@@ -98,6 +130,7 @@ serve(async (req) => {
         tiktok,
         industry,
         market,
+        webhook_url: webhookUrl || null,
         user_agent: req.headers.get('user-agent'),
         ip_address: req.headers.get('x-forwarded-for')
       })
@@ -127,7 +160,8 @@ serve(async (req) => {
       linkedin,
       tiktok,
       industry,
-      market
+      market,
+      webhookUrl
     }).catch(error => {
       console.error('Background processing error:', error);
     });
@@ -152,8 +186,55 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
     console.log('Processing brand diagnostic for input:', inputId);
     const startTime = Date.now();
 
-    // Parallel data collection for non-rate-limited APIs
-    const [websiteData, rssData, wikipediaData, waybackData, socialData] = await Promise.all([
+    // ============= PHASE 1: CHECK CACHE =============
+    const domain = new URL(data.websiteUrl).hostname;
+    const cacheKey = await md5(`${data.brandName}|${domain}`);
+    
+    console.log('Checking cache with key:', cacheKey);
+    const { data: cachedData, error: cacheError } = await supabase
+      .from('brand_scan_cache')
+      .select('*')
+      .eq('cache_key', cacheKey)
+      .gte('expires_at', new Date().toISOString())
+      .single();
+
+    if (cachedData && !cacheError) {
+      console.log('Cache hit! Returning cached results');
+      const cached = cachedData.data;
+      
+      await supabase
+        .from('brand_scans_results')
+        .update({
+          raw_pillars_json: cached.pillars,
+          result_json: cached.result_json,
+          pillar_scores: cached.pillar_scores,
+          overall_score: cached.overall_score,
+          status: 'completed'
+        })
+        .eq('input_id', inputId);
+
+      // Send webhook if provided
+      if (data.webhookUrl) {
+        await sendWebhookNotification(data.webhookUrl, {
+          input_id: inputId,
+          status: 'completed',
+          overall_score: cached.overall_score,
+          pillar_scores: cached.pillar_scores,
+          brand_name: data.brandName,
+          cached: true
+        });
+      }
+
+      console.log('Cached result returned for:', inputId);
+      return;
+    }
+
+    console.log('Cache miss, proceeding with full analysis');
+
+    // ============= PHASE 2: PARALLEL DATA COLLECTION =============
+    const [websiteData, rssData, wikipediaData, waybackData, socialData, 
+           pageRankData, rdapData, sslData, redditData, githubData, 
+           hackerNewsData, commonCrawlData, builtWithData] = await Promise.all([
       (async () => {
         const fetchStart = Date.now();
         try {
@@ -213,6 +294,95 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
           await logFetchResult(supabase, inputId, 'social_media', 'failed', Date.now() - fetchStart, err instanceof Error ? err.message : 'Unknown error', 0);
           return { instagram: null, x: null, linkedin: null, tiktok: null };
         }
+      })(),
+      // New data sources
+      (async () => {
+        const fetchStart = Date.now();
+        try {
+          const result = await fetchOpenPageRank(domain);
+          await logFetchResult(supabase, inputId, 'openpagerank', result ? 'success' : 'failed', Date.now() - fetchStart, null, result ? JSON.stringify(result).length : 0);
+          return result;
+        } catch (err) {
+          await logFetchResult(supabase, inputId, 'openpagerank', 'failed', Date.now() - fetchStart, err instanceof Error ? err.message : 'Unknown error', 0);
+          return null;
+        }
+      })(),
+      (async () => {
+        const fetchStart = Date.now();
+        try {
+          const result = await fetchRDAPWhois(domain);
+          await logFetchResult(supabase, inputId, 'rdap_whois', result ? 'success' : 'failed', Date.now() - fetchStart, null, result ? JSON.stringify(result).length : 0);
+          return result;
+        } catch (err) {
+          await logFetchResult(supabase, inputId, 'rdap_whois', 'failed', Date.now() - fetchStart, err instanceof Error ? err.message : 'Unknown error', 0);
+          return null;
+        }
+      })(),
+      (async () => {
+        const fetchStart = Date.now();
+        try {
+          const result = await fetchSSLLabs(domain);
+          await logFetchResult(supabase, inputId, 'ssllabs', result ? 'success' : 'failed', Date.now() - fetchStart, null, result ? JSON.stringify(result).length : 0);
+          return result;
+        } catch (err) {
+          await logFetchResult(supabase, inputId, 'ssllabs', 'failed', Date.now() - fetchStart, err instanceof Error ? err.message : 'Unknown error', 0);
+          return null;
+        }
+      })(),
+      (async () => {
+        const fetchStart = Date.now();
+        try {
+          const result = await fetchRedditSearch(data.brandName);
+          await logFetchResult(supabase, inputId, 'reddit', result ? 'success' : 'failed', Date.now() - fetchStart, null, result ? JSON.stringify(result).length : 0);
+          return result;
+        } catch (err) {
+          await logFetchResult(supabase, inputId, 'reddit', 'failed', Date.now() - fetchStart, err instanceof Error ? err.message : 'Unknown error', 0);
+          return null;
+        }
+      })(),
+      (async () => {
+        const fetchStart = Date.now();
+        try {
+          const result = await fetchGitHubSearch(data.brandName);
+          await logFetchResult(supabase, inputId, 'github', result ? 'success' : 'failed', Date.now() - fetchStart, null, result ? JSON.stringify(result).length : 0);
+          return result;
+        } catch (err) {
+          await logFetchResult(supabase, inputId, 'github', 'failed', Date.now() - fetchStart, err instanceof Error ? err.message : 'Unknown error', 0);
+          return null;
+        }
+      })(),
+      (async () => {
+        const fetchStart = Date.now();
+        try {
+          const result = await fetchHackerNews(data.brandName);
+          await logFetchResult(supabase, inputId, 'hackernews', result ? 'success' : 'failed', Date.now() - fetchStart, null, result ? JSON.stringify(result).length : 0);
+          return result;
+        } catch (err) {
+          await logFetchResult(supabase, inputId, 'hackernews', 'failed', Date.now() - fetchStart, err instanceof Error ? err.message : 'Unknown error', 0);
+          return null;
+        }
+      })(),
+      (async () => {
+        const fetchStart = Date.now();
+        try {
+          const result = await fetchCommonCrawl(domain);
+          await logFetchResult(supabase, inputId, 'commoncrawl', result ? 'success' : 'failed', Date.now() - fetchStart, null, result ? JSON.stringify(result).length : 0);
+          return result;
+        } catch (err) {
+          await logFetchResult(supabase, inputId, 'commoncrawl', 'failed', Date.now() - fetchStart, err instanceof Error ? err.message : 'Unknown error', 0);
+          return null;
+        }
+      })(),
+      (async () => {
+        const fetchStart = Date.now();
+        try {
+          const result = await fetchBuiltWith(data.websiteUrl);
+          await logFetchResult(supabase, inputId, 'builtwith', result ? 'success' : 'failed', Date.now() - fetchStart, null, result ? JSON.stringify(result).length : 0);
+          return result;
+        } catch (err) {
+          await logFetchResult(supabase, inputId, 'builtwith', 'failed', Date.now() - fetchStart, err instanceof Error ? err.message : 'Unknown error', 0);
+          return null;
+        }
       })()
     ]);
 
@@ -248,7 +418,7 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
     
     const duckduckgoContent = await fetchDDG(() => fetchDuckDuckGoContent(data.brandName), 'content');
 
-    // Aggregate 8 pillars with complete data
+    // ============= PHASE 3: AGGREGATE PILLARS =============
     const pillars = aggregatePillars({
       brandName: data.brandName,
       websiteUrl: data.websiteUrl,
@@ -265,6 +435,14 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
         content: duckduckgoContent
       },
       socialData,
+      pageRankData,
+      rdapData,
+      sslData,
+      redditData,
+      githubData,
+      hackerNewsData,
+      commonCrawlData,
+      builtWithData,
       industry: data.industry,
       market: data.market
     });
@@ -278,17 +456,15 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
       .update({ raw_pillars_json: pillars })
       .eq('input_id', inputId);
 
-    // Build payload for OpenAI Assistant
+    // ============= PHASE 4: AI ANALYSIS =============
     const aiPayload = buildAIPayload(data.brandName, pillars);
-
-    // Call OpenAI Assistant API v2
     const assistantResult = await callOpenAIAssistant(aiPayload);
 
     // Extract scores from assistant response
     const pillarScores = extractPillarScores(assistantResult);
     const overallScore = calculateOverallScore(pillarScores);
 
-    // Update result
+    // ============= PHASE 5: UPDATE RESULTS =============
     await supabase
       .from('brand_scans_results')
       .update({
@@ -298,6 +474,30 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
         status: 'completed'
       })
       .eq('input_id', inputId);
+
+    // ============= PHASE 6: STORE IN CACHE =============
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    await supabase
+      .from('brand_scan_cache')
+      .upsert({
+        cache_key: cacheKey,
+        data: { pillars, result_json: assistantResult, pillar_scores: pillarScores, overall_score: overallScore },
+        expires_at: expiresAt
+      }, { onConflict: 'cache_key' });
+
+    console.log('Results cached with key:', cacheKey);
+
+    // ============= PHASE 7: SEND WEBHOOK =============
+    if (data.webhookUrl) {
+      await sendWebhookNotification(data.webhookUrl, {
+        input_id: inputId,
+        status: 'completed',
+        overall_score: overallScore,
+        pillar_scores: pillarScores,
+        brand_name: data.brandName,
+        cached: false
+      });
+    }
 
     console.log('Brand diagnostic completed for:', inputId);
 
@@ -312,6 +512,248 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
         error_message: errorMessage
       })
       .eq('input_id', inputId);
+
+    // Send webhook with failure status
+    if (data.webhookUrl) {
+      await sendWebhookNotification(data.webhookUrl, {
+        input_id: inputId,
+        status: 'failed',
+        error: errorMessage,
+        brand_name: data.brandName
+      });
+    }
+  }
+}
+
+// ============= NEW DATA FETCHERS =============
+
+async function fetchOpenPageRank(domain: string) {
+  try {
+    console.log('Fetching OpenPageRank for:', domain);
+    const response = await fetchWithRetry(`https://openpagerank.com/api/v1.0/getPageRank?domains[]=${domain}`, {}, 2);
+    
+    if (!response.ok) {
+      return { success: false, error: `Status ${response.status}` };
+    }
+    
+    const data = await response.json();
+    const domainData = data.response?.[0];
+    
+    return {
+      success: true,
+      pagerank_decimal: domainData?.page_rank_decimal || null,
+      rank: domainData?.rank || null
+    };
+  } catch (error) {
+    console.error('OpenPageRank fetch failed:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+async function fetchRDAPWhois(domain: string) {
+  try {
+    console.log('Fetching RDAP/WHOIS for:', domain);
+    const response = await fetchWithRetry(`https://rdap.org/domain/${domain}`, {}, 2);
+    
+    if (!response.ok) {
+      return { success: false, error: `Status ${response.status}` };
+    }
+    
+    const data = await response.json();
+    
+    return {
+      success: true,
+      registration_date: data.events?.find((e: any) => e.eventAction === 'registration')?.eventDate || null,
+      registrar: data.entities?.[0]?.vcardArray?.[1]?.find((v: any) => v[0] === 'fn')?.[3] || null,
+      expires: data.events?.find((e: any) => e.eventAction === 'expiration')?.eventDate || null
+    };
+  } catch (error) {
+    console.error('RDAP fetch failed:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+async function fetchSSLLabs(domain: string) {
+  try {
+    console.log('Fetching SSL Labs for:', domain);
+    // Note: SSL Labs API requires initiating a scan first, then polling
+    // For simplicity, we'll just check if HTTPS is available
+    const response = await fetchWithRetry(`https://${domain}`, { method: 'HEAD' }, 1);
+    
+    return {
+      success: true,
+      https_available: response.ok,
+      status: response.status
+    };
+  } catch (error) {
+    console.error('SSL Labs fetch failed:', error);
+    return { success: false, https_available: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+async function fetchRedditSearch(brandName: string) {
+  try {
+    console.log('Fetching Reddit search for:', brandName);
+    const response = await fetchWithRetry(
+      `https://www.reddit.com/search.json?q=${encodeURIComponent(brandName)}&limit=25`,
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; BrandDiagnostic/1.0)'
+        }
+      },
+      2
+    );
+    
+    if (!response.ok) {
+      return { success: false, error: `Status ${response.status}` };
+    }
+    
+    const data = await response.json();
+    const posts = data.data?.children?.map((child: any) => ({
+      title: child.data?.title || '',
+      subreddit: child.data?.subreddit || '',
+      score: child.data?.score || 0,
+      num_comments: child.data?.num_comments || 0,
+      url: `https://reddit.com${child.data?.permalink || ''}`
+    })) || [];
+    
+    return {
+      success: true,
+      posts,
+      totalCount: posts.length
+    };
+  } catch (error) {
+    console.error('Reddit fetch failed:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+async function fetchGitHubSearch(brandName: string) {
+  try {
+    console.log('Fetching GitHub search for:', brandName);
+    const response = await fetchWithRetry(
+      `https://api.github.com/search/repositories?q=${encodeURIComponent(brandName)}&per_page=10`,
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; BrandDiagnostic/1.0)',
+          'Accept': 'application/vnd.github.v3+json'
+        }
+      },
+      2
+    );
+    
+    if (!response.ok) {
+      return { success: false, error: `Status ${response.status}` };
+    }
+    
+    const data = await response.json();
+    
+    return {
+      success: true,
+      items: data.items?.map((item: any) => ({
+        name: item.name,
+        description: item.description,
+        stars: item.stargazers_count,
+        url: item.html_url
+      })) || [],
+      total_count: data.total_count || 0
+    };
+  } catch (error) {
+    console.error('GitHub fetch failed:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+async function fetchHackerNews(brandName: string) {
+  try {
+    console.log('Fetching Hacker News for:', brandName);
+    const response = await fetchWithRetry(
+      `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(brandName)}&hitsPerPage=10`,
+      {},
+      2
+    );
+    
+    if (!response.ok) {
+      return { success: false, error: `Status ${response.status}` };
+    }
+    
+    const data = await response.json();
+    
+    return {
+      success: true,
+      hits: data.hits?.map((hit: any) => ({
+        title: hit.title,
+        points: hit.points,
+        num_comments: hit.num_comments,
+        url: hit.url || `https://news.ycombinator.com/item?id=${hit.objectID}`
+      })) || [],
+      nbHits: data.nbHits || 0
+    };
+  } catch (error) {
+    console.error('Hacker News fetch failed:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+async function fetchCommonCrawl(domain: string) {
+  try {
+    console.log('Fetching Common Crawl for:', domain);
+    // Use the latest index (CC-MAIN-2024-10 as example)
+    const response = await fetchWithRetry(
+      `https://index.commoncrawl.org/CC-MAIN-2024-10-index?url=${domain}&output=json`,
+      {},
+      1
+    );
+    
+    if (!response.ok) {
+      return { success: false, error: `Status ${response.status}` };
+    }
+    
+    const text = await response.text();
+    const lines = text.split('\n').filter(line => line.trim());
+    
+    return {
+      success: true,
+      pagesIndexed: lines.length
+    };
+  } catch (error) {
+    console.error('Common Crawl fetch failed:', error);
+    return { success: false, pagesIndexed: 0, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+async function fetchBuiltWith(websiteUrl: string) {
+  try {
+    console.log('Detecting technologies for:', websiteUrl);
+    const response = await fetchWithRetry(websiteUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; BrandDiagnostic/1.0)'
+      }
+    }, 1);
+    
+    const html = await response.text();
+    
+    // Detect common technologies from HTML
+    const technologies = [];
+    
+    if (/react/i.test(html)) technologies.push('React');
+    if (/vue/i.test(html)) technologies.push('Vue.js');
+    if (/angular/i.test(html)) technologies.push('Angular');
+    if (/wordpress/i.test(html)) technologies.push('WordPress');
+    if (/shopify/i.test(html)) technologies.push('Shopify');
+    if (/wix/i.test(html)) technologies.push('Wix');
+    if (/squarespace/i.test(html)) technologies.push('Squarespace');
+    if (/jquery/i.test(html)) technologies.push('jQuery');
+    if (/bootstrap/i.test(html)) technologies.push('Bootstrap');
+    if (/tailwind/i.test(html)) technologies.push('Tailwind CSS');
+    
+    return {
+      success: true,
+      technologies
+    };
+  } catch (error) {
+    console.error('BuiltWith fetch failed:', error);
+    return { success: false, technologies: [], error: error instanceof Error ? error.message : 'Unknown error' };
   }
 }
 
@@ -478,184 +920,206 @@ async function fetchRSSFeed(websiteUrl: string) {
 }
 
 function calculatePublishingFrequency(items: any[]) {
-  if (items.length < 2) return 'insufficient_data';
+  if (items.length < 2) return 'unknown';
   
   try {
     const dates = items
-      .map(item => item.pubDate)
-      .filter(d => d)
-      .map(d => new Date(d))
-      .filter(d => !isNaN(d.getTime()))
-      .sort((a, b) => b.getTime() - a.getTime());
+      .map(item => item.pubDate ? new Date(item.pubDate).getTime() : null)
+      .filter(d => d !== null && !isNaN(d))
+      .sort((a, b) => b! - a!);
     
-    if (dates.length < 2) return 'insufficient_data';
+    if (dates.length < 2) return 'unknown';
     
-    // Calculate average days between posts
-    let totalDays = 0;
-    for (let i = 0; i < dates.length - 1; i++) {
-      const diff = dates[i].getTime() - dates[i + 1].getTime();
-      totalDays += diff / (1000 * 60 * 60 * 24);
-    }
-    const avgDays = totalDays / (dates.length - 1);
+    const daysDiff = (dates[0]! - dates[dates.length - 1]!) / (1000 * 60 * 60 * 24);
+    const postsPerDay = dates.length / daysDiff;
     
-    if (avgDays < 1) return 'multiple_per_day';
-    if (avgDays < 7) return 'weekly';
-    if (avgDays < 30) return 'monthly';
+    if (postsPerDay >= 1) return 'daily';
+    if (postsPerDay >= 0.5) return 'multiple_per_week';
+    if (postsPerDay >= 0.14) return 'weekly';
+    if (postsPerDay >= 0.033) return 'monthly';
     return 'infrequent';
-    
   } catch {
-    return 'calculation_error';
+    return 'unknown';
   }
 }
 
-// ============= 6 DUCKDUCKGO QUERIES =============
-async function fetchDuckDuckGoMain(brandName: string) {
-  return fetchDuckDuckGo(brandName, 'main');
-}
-
-async function fetchDuckDuckGoNews(brandName: string) {
-  return fetchDuckDuckGo(`${brandName} news`, 'news');
-}
-
-async function fetchDuckDuckGoComplaints(brandName: string) {
-  return fetchDuckDuckGo(`${brandName} complaints`, 'complaints');
-}
-
-async function fetchDuckDuckGoReviews(brandName: string) {
-  return fetchDuckDuckGo(`${brandName} reviews`, 'reviews');
-}
-
-async function fetchDuckDuckGoAlternatives(brandName: string) {
-  return fetchDuckDuckGo(`${brandName} alternatives`, 'alternatives');
-}
-
-async function fetchDuckDuckGoContent(brandName: string) {
-  return fetchDuckDuckGo(`${brandName} content marketing`, 'content');
-}
-
-async function fetchDuckDuckGo(query: string, type: string) {
+// ============= DUCKDUCKGO SEARCH (IMPROVED PARSING) =============
+async function fetchDuckDuckGo(query: string) {
   try {
-    console.log(`Fetching DuckDuckGo ${type} for:`, query);
+    const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    console.log('DuckDuckGo search:', query);
     
-    const response = await fetchWithRetry(
-      `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
-      {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        }
-      },
-      3 // 3 retries for DDG
-    );
+    const response = await fetchWithRetry(searchUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    }, 2);
     
     if (!response.ok) {
-      console.log(`DuckDuckGo ${type} returned status:`, response.status);
-      return { success: false, blocked: true, type, status: response.status };
+      console.log(`DuckDuckGo returned status ${response.status}`);
+      return { success: false, blocked: response.status === 403 || response.status === 429 };
     }
     
     const html = await response.text();
     
-    // Extract result snippets
-    const snippets = [];
-    const resultMatches = html.matchAll(/<a[^>]*class=["'][^"']*result__snippet[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi);
-    for (const match of resultMatches) {
-      const snippet = match[1].replace(/<[^>]+>/g, '').trim();
-      if (snippet) snippets.push(snippet);
-      if (snippets.length >= 5) break;
+    // Improved result count extraction with multiple patterns
+    let resultsCount = 0;
+    
+    // Pattern 1: Look for result divs
+    const resultDivs = html.match(/class="result[^"]*"/g);
+    if (resultDivs) {
+      resultsCount = Math.max(resultsCount, resultDivs.length);
     }
     
-    // Estimate result count
-    const resultElements = html.match(/result__/g);
-    const resultsCount = resultElements ? resultElements.length : 0;
+    // Pattern 2: Look for links-main divs
+    const linksMain = html.match(/class="links_main[^"]*"/g);
+    if (linksMain) {
+      resultsCount = Math.max(resultsCount, linksMain.length);
+    }
+    
+    // Pattern 3: Count actual result snippets
+    const snippetMatches = html.match(/class="result__snippet[^"]*"/g);
+    if (snippetMatches) {
+      resultsCount = Math.max(resultsCount, snippetMatches.length);
+    }
+    
+    // Extract result snippets with improved regex
+    const snippets = [];
+    const snippetRegex = /<a[^>]*class="result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
+    let match;
+    
+    while ((match = snippetRegex.exec(html)) !== null && snippets.length < 5) {
+      const snippet = match[1]
+        .replace(/<[^>]+>/g, '') // Remove HTML tags
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/\s+/g, ' ')
+        .trim();
+      
+      if (snippet && snippet.length > 20) {
+        snippets.push(snippet);
+      }
+    }
+    
+    console.log(`Found ${resultsCount} results, extracted ${snippets.length} snippets`);
     
     return {
       success: true,
-      type,
-      query,
       resultsCount,
       snippets
     };
     
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error(`DuckDuckGo ${type} fetch failed:`, errorMessage);
-    return { success: false, type, error: errorMessage };
+    console.error('DuckDuckGo search failed:', errorMessage);
+    return { success: false, error: errorMessage };
   }
 }
 
-// ============= WIKIPEDIA DATA =============
+async function fetchDuckDuckGoMain(brandName: string) {
+  return fetchDuckDuckGo(`"${brandName}"`);
+}
+
+async function fetchDuckDuckGoNews(brandName: string) {
+  return fetchDuckDuckGo(`"${brandName}" news`);
+}
+
+async function fetchDuckDuckGoComplaints(brandName: string) {
+  return fetchDuckDuckGo(`"${brandName}" complaints OR scam OR fraud`);
+}
+
+async function fetchDuckDuckGoReviews(brandName: string) {
+  return fetchDuckDuckGo(`"${brandName}" reviews OR ratings`);
+}
+
+async function fetchDuckDuckGoAlternatives(brandName: string) {
+  return fetchDuckDuckGo(`"${brandName}" alternatives OR competitors`);
+}
+
+async function fetchDuckDuckGoContent(brandName: string) {
+  return fetchDuckDuckGo(`site:${brandName} blog OR articles OR content`);
+}
+
+// ============= WIKIPEDIA =============
 async function fetchWikipediaData(brandName: string) {
   try {
     console.log('Fetching Wikipedia for:', brandName);
-    const response = await fetchWithRetry(
-      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(brandName)}`
-    );
+    const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(brandName)}&format=json&origin=*`;
     
-    if (response.ok) {
-      const data = await response.json();
-      return { 
-        success: true, 
-        exists: true,
-        title: data.title,
-        extract: data.extract,
-        pageUrl: data.content_urls?.desktop?.page
-      };
+    const searchResponse = await fetchWithRetry(searchUrl);
+    const searchData = await searchResponse.json();
+    
+    if (!searchData.query?.search?.length) {
+      return { exists: false };
     }
     
-    return { success: true, exists: false };
+    const pageTitle = searchData.query.search[0].title;
+    const pageId = searchData.query.search[0].pageid;
+    
+    const extractUrl = `https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro&explaintext&pageids=${pageId}&format=json&origin=*`;
+    const extractResponse = await fetchWithRetry(extractUrl);
+    const extractData = await extractResponse.json();
+    
+    const page = extractData.query?.pages?.[pageId];
+    
+    return {
+      exists: true,
+      title: pageTitle,
+      extract: page?.extract || null,
+      pageUrl: `https://en.wikipedia.org/wiki/${encodeURIComponent(pageTitle.replace(/ /g, '_'))}`
+    };
+    
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('Wikipedia fetch failed:', errorMessage);
-    return { success: false, error: errorMessage };
+    return { exists: false, error: errorMessage };
   }
 }
 
-// ============= WAYBACK MACHINE DATA =============
+// ============= WAYBACK MACHINE =============
 async function fetchWaybackData(url: string) {
   try {
     console.log('Fetching Wayback Machine for:', url);
-    const response = await fetchWithRetry(
-      `https://archive.org/wayback/available?url=${encodeURIComponent(url)}`
-    );
+    const apiUrl = `https://archive.org/wayback/available?url=${encodeURIComponent(url)}`;
     
+    const response = await fetchWithRetry(apiUrl);
     const data = await response.json();
     
-    if (data.archived_snapshots?.closest) {
-      const snapshot = data.archived_snapshots.closest;
-      
-      // Calculate domain age from timestamp
-      const timestamp = snapshot.timestamp; // Format: YYYYMMDDHHMMSS
-      const year = parseInt(timestamp.substring(0, 4));
-      const month = parseInt(timestamp.substring(4, 6));
-      const day = parseInt(timestamp.substring(6, 8));
-      const firstSeen = new Date(year, month - 1, day);
-      const now = new Date();
-      const ageYears = (now.getTime() - firstSeen.getTime()) / (1000 * 60 * 60 * 24 * 365);
-      
-      return {
-        success: true,
-        available: true,
-        timestamp,
-        url: snapshot.url,
-        firstSeen: firstSeen.toISOString(),
-        ageYears: Math.round(ageYears * 10) / 10
-      };
+    if (!data.archived_snapshots?.closest) {
+      return { available: false };
     }
     
-    return { success: true, available: false };
+    const snapshot = data.archived_snapshots.closest;
+    const timestamp = snapshot.timestamp;
+    
+    // Parse timestamp (format: YYYYMMDDhhmmss)
+    const year = parseInt(timestamp.substring(0, 4));
+    const currentYear = new Date().getFullYear();
+    const ageYears = currentYear - year;
+    
+    return {
+      available: true,
+      timestamp: timestamp,
+      url: snapshot.url,
+      firstSeen: `${timestamp.substring(0, 4)}-${timestamp.substring(4, 6)}-${timestamp.substring(6, 8)}`,
+      ageYears
+    };
+    
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('Wayback fetch failed:', errorMessage);
-    return { success: false, error: errorMessage };
+    return { available: false, error: errorMessage };
   }
 }
 
-// ============= SOCIAL MEDIA DATA =============
-
-// Browser-like headers for social media fetches
+// ============= SOCIAL MEDIA SCRAPING =============
 const BROWSER_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-  'Accept-Language': 'en-US,en;q=0.5',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
   'Accept-Encoding': 'gzip, deflate, br',
   'DNT': '1',
   'Connection': 'keep-alive',
@@ -666,19 +1130,20 @@ const BROWSER_HEADERS = {
   'Cache-Control': 'max-age=0'
 };
 
-// Cookie storage for maintaining session-like behavior
-let cookieJar: { [domain: string]: string } = {};
+const cookieJar = new Map<string, string>();
 
-function extractCookies(response: Response, domain: string): void {
-  const setCookie = response.headers.get('set-cookie');
-  if (setCookie) {
-    cookieJar[domain] = setCookie;
-    console.log(`Stored cookies for ${domain}`);
-  }
+function getCookieHeader(domain: string): string | null {
+  return cookieJar.get(domain) || null;
 }
 
-function getCookieHeader(domain: string): string | undefined {
-  return cookieJar[domain];
+function extractCookies(response: Response, domain: string) {
+  const setCookieHeader = response.headers.get('set-cookie');
+  if (setCookieHeader) {
+    const cookies = setCookieHeader.split(',').map(c => c.split(';')[0].trim());
+    const existingCookies = cookieJar.get(domain) || '';
+    const allCookies = existingCookies ? `${existingCookies}; ${cookies.join('; ')}` : cookies.join('; ');
+    cookieJar.set(domain, allCookies);
+  }
 }
 
 async function fetchInstagramProfile(handle: string) {
@@ -707,29 +1172,24 @@ async function fetchInstagramProfile(handle: string) {
     
     const html = await response.text();
     
-    // Extract og:description which contains: "41K Followers, 74 Following, 86 Posts - Bio text"
+    // Extract og:description which often contains follower info
     const ogDescMatch = html.match(/<meta property="og:description" content="([^"]+)"/);
     const ogImageMatch = html.match(/<meta property="og:image" content="([^"]+)"/);
     
     if (ogDescMatch) {
       const description = ogDescMatch[1];
-      
-      // Parse metrics from description
-      const followersMatch = description.match(/([\d.,KMB]+)\s+Followers?/i);
-      const followingMatch = description.match(/([\d.,KMB]+)\s+Following/i);
-      const postsMatch = description.match(/([\d.,KMB]+)\s+Posts?/i);
-      
-      // Extract bio (everything after " - ")
-      const bioMatch = description.match(/\s+-\s+(.+)$/);
+      const followersMatch = description.match(/([\d,\.]+[KkMm]?)\s*Followers/);
+      const postsMatch = description.match(/([\d,\.]+[KkMm]?)\s*Posts/);
+      const followingMatch = description.match(/([\d,\.]+[KkMm]?)\s*Following/);
       
       return {
         provided: true,
         handle,
         fetched: true,
         followers: followersMatch ? followersMatch[1] : null,
-        following: followingMatch ? followingMatch[1] : null,
         posts: postsMatch ? postsMatch[1] : null,
-        bio: bioMatch ? bioMatch[1] : description,
+        following: followingMatch ? followingMatch[1] : null,
+        bio: description,
         profileImage: ogImageMatch ? ogImageMatch[1] : null
       };
     }
@@ -746,8 +1206,8 @@ async function fetchInstagramProfile(handle: string) {
 async function fetchXProfile(handle: string) {
   try {
     console.log('Fetching X/Twitter profile:', handle);
-    const url = `https://x.com/${handle}`;
-    const domain = 'x.com';
+    const url = `https://twitter.com/${handle}`;
+    const domain = 'twitter.com';
     
     const headers: any = { ...BROWSER_HEADERS };
     const existingCookies = getCookieHeader(domain);
@@ -769,17 +1229,15 @@ async function fetchXProfile(handle: string) {
     
     const html = await response.text();
     
-    // Extract og:description and og:image
+    // Extract og:description
     const ogDescMatch = html.match(/<meta property="og:description" content="([^"]+)"/);
     const ogImageMatch = html.match(/<meta property="og:image" content="([^"]+)"/);
-    const ogTitleMatch = html.match(/<meta property="og:title" content="([^"]+)"/);
     
-    if (ogDescMatch || ogTitleMatch) {
+    if (ogDescMatch || ogImageMatch) {
       return {
         provided: true,
         handle,
         fetched: true,
-        displayName: ogTitleMatch ? ogTitleMatch[1] : null,
         bio: ogDescMatch ? ogDescMatch[1] : null,
         profileImage: ogImageMatch ? ogImageMatch[1] : null
       };
@@ -820,16 +1278,14 @@ async function fetchTikTokProfile(handle: string) {
     
     const html = await response.text();
     
-    // Extract og:description and og:image
+    // Extract og:description which often contains follower/likes info
     const ogDescMatch = html.match(/<meta property="og:description" content="([^"]+)"/);
     const ogImageMatch = html.match(/<meta property="og:image" content="([^"]+)"/);
     
     if (ogDescMatch) {
       const description = ogDescMatch[1];
-      
-      // Parse metrics from description (format varies)
-      const followersMatch = description.match(/([\d.,KMB]+)\s+Followers?/i);
-      const likesMatch = description.match(/([\d.,KMB]+)\s+Likes?/i);
+      const followersMatch = description.match(/([\d,\.]+[KkMm]?)\s*Followers/);
+      const likesMatch = description.match(/([\d,\.]+[KkMm]?)\s*Likes/);
       
       return {
         provided: true,
@@ -935,11 +1391,11 @@ async function fetchSocialMediaData(handles: any) {
   return results;
 }
 
-// ============= 8 PILLAR AGGREGATION (EXACT N8N STRUCTURE) =============
+// ============= 8 PILLAR AGGREGATION (ENHANCED WITH NEW DATA) =============
 function aggregatePillars(data: any) {
   const pillars: any = {};
 
-  // Pillar 1: Search Visibility
+  // Pillar 1: Search Visibility (+ CommonCrawl)
   pillars.searchVisibility = {
     name: "Search Visibility",
     mainSearchResults: data.duckduckgoData?.main?.resultsCount || 0,
@@ -948,6 +1404,7 @@ function aggregatePillars(data: any) {
     totalSearchVisibility: (data.duckduckgoData?.main?.resultsCount || 0) + 
                            (data.duckduckgoData?.news?.resultsCount || 0) + 
                            (data.duckduckgoData?.content?.resultsCount || 0),
+    globalPagesIndexed: data.commonCrawlData?.pagesIndexed || 0,
     searchSnippets: {
       main: data.duckduckgoData?.main?.snippets || [],
       news: data.duckduckgoData?.news?.snippets || [],
@@ -955,7 +1412,7 @@ function aggregatePillars(data: any) {
     }
   };
 
-  // Pillar 2: Digital Authority
+  // Pillar 2: Digital Authority (+ PageRank, RDAP, SSL, Hacker News)
   pillars.digitalAuthority = {
     name: "Digital Authority",
     wikipedia: {
@@ -969,6 +1426,22 @@ function aggregatePillars(data: any) {
       firstSeen: data.waybackData?.firstSeen || null,
       ageYears: data.waybackData?.ageYears || null
     },
+    pageRank: {
+      available: data.pageRankData?.success || false,
+      decimal: data.pageRankData?.pagerank_decimal || null,
+      rank: data.pageRankData?.rank || null
+    },
+    whoisData: {
+      available: data.rdapData?.success || false,
+      registrationDate: data.rdapData?.registration_date || null,
+      registrar: data.rdapData?.registrar || null,
+      expires: data.rdapData?.expires || null
+    },
+    sslGrade: {
+      httpsAvailable: data.sslData?.https_available || false,
+      status: data.sslData?.status || null
+    },
+    hackerNewsMentions: data.hackerNewsData?.nbHits || 0,
     domainAge: data.waybackData?.ageYears || null
   };
 
@@ -1025,36 +1498,44 @@ function aggregatePillars(data: any) {
     estimatedTotalFollowers: totalFollowers > 0 ? Math.round(totalFollowers) : null
   };
 
-  // Pillar 4: Brand Mentions
+  // Pillar 4: Brand Mentions (+ Reddit, GitHub, Hacker News)
   const totalMentions = (data.duckduckgoData?.main?.resultsCount || 0) + 
                         (data.duckduckgoData?.news?.resultsCount || 0) + 
-                        (data.duckduckgoData?.reviews?.resultsCount || 0);
+                        (data.duckduckgoData?.reviews?.resultsCount || 0) +
+                        (data.redditData?.totalCount || 0) +
+                        (data.githubData?.total_count || 0) +
+                        (data.hackerNewsData?.nbHits || 0);
   
   pillars.brandMentions = {
     name: "Brand Mentions",
     totalMentions,
     newsMentions: data.duckduckgoData?.news?.resultsCount || 0,
     reviewMentions: data.duckduckgoData?.reviews?.resultsCount || 0,
+    redditMentions: data.redditData?.totalCount || 0,
+    githubMentions: data.githubData?.total_count || 0,
+    hackerNewsMentions: data.hackerNewsData?.nbHits || 0,
     snippets: [
       ...(data.duckduckgoData?.main?.snippets || []).slice(0, 3),
       ...(data.duckduckgoData?.news?.snippets || []).slice(0, 2)
     ]
   };
 
-  // Pillar 5: Sentiment Analysis
+  // Pillar 5: Sentiment Analysis (+ Reddit)
   pillars.sentimentAnalysis = {
     name: "Sentiment Analysis",
     complaintsFound: data.duckduckgoData?.complaints?.resultsCount || 0,
     reviewsFound: data.duckduckgoData?.reviews?.resultsCount || 0,
+    redditDiscussions: data.redditData?.posts || [],
     complaintsSnippets: data.duckduckgoData?.complaints?.snippets || [],
     reviewsSnippets: data.duckduckgoData?.reviews?.snippets || [],
     sentimentIndicators: {
       hasComplaints: (data.duckduckgoData?.complaints?.resultsCount || 0) > 0,
-      hasReviews: (data.duckduckgoData?.reviews?.resultsCount || 0) > 0
+      hasReviews: (data.duckduckgoData?.reviews?.resultsCount || 0) > 0,
+      hasRedditDiscussions: (data.redditData?.totalCount || 0) > 0
     }
   };
 
-  // Pillar 6: Content Footprint
+  // Pillar 6: Content Footprint (+ BuiltWith, GitHub)
   pillars.contentFootprint = {
     name: "Content Footprint",
     websiteMetadata: data.websiteData?.metadata || {},
@@ -1065,6 +1546,8 @@ function aggregatePillars(data: any) {
       frequency: data.rssData?.frequency || 'unknown',
       recentPosts: data.rssData?.recentPosts || []
     },
+    techStack: data.builtWithData?.technologies || [],
+    githubRepos: data.githubData?.items || [],
     blogDetected: data.websiteData?.metadata?.hasBlogSection || false,
     contentSearchResults: data.duckduckgoData?.content?.resultsCount || 0,
     htmlSize: data.websiteData?.htmlLength || 0
@@ -1091,15 +1574,17 @@ function aggregatePillars(data: any) {
     }
   };
 
-  // Pillar 8: Competitive Landscape
+  // Pillar 8: Competitive Landscape (+ GitHub alternatives)
   pillars.competitiveLandscape = {
     name: "Competitive Landscape",
     industry: data.industry || 'not_specified',
     market: data.market || 'not_specified',
     alternativesFound: data.duckduckgoData?.alternatives?.resultsCount || 0,
+    githubAlternatives: data.githubData?.items?.length || 0,
     alternativesSnippets: data.duckduckgoData?.alternatives?.snippets || [],
     competitiveIndicators: {
       hasAlternatives: (data.duckduckgoData?.alternatives?.resultsCount || 0) > 0,
+      hasGitHubAlternatives: (data.githubData?.items?.length || 0) > 0,
       industrySpecified: !!data.industry,
       marketSpecified: !!data.market
     }
@@ -1118,34 +1603,101 @@ function buildAIPayload(brandName: string, pillars: any) {
       website: pillars.contentFootprint?.websiteMetadata ? 'available' : 'unavailable',
       wikipedia: pillars.digitalAuthority?.wikipedia?.exists ? 'available' : 'unavailable',
       wayback: pillars.digitalAuthority?.wayback?.available ? 'available' : 'unavailable',
-      duckduckgo: 'partial',
+      duckduckgo: 'partial (6 queries)',
       social_media: 'og_metadata_with_metrics',
-      rss: pillars.contentFootprint?.rss?.found ? 'available' : 'unavailable'
+      rss: pillars.contentFootprint?.rss?.found ? 'available' : 'unavailable',
+      openpagerank: pillars.digitalAuthority?.pageRank?.available ? 'available' : 'unavailable',
+      rdap_whois: pillars.digitalAuthority?.whoisData?.available ? 'available' : 'unavailable',
+      ssl_labs: 'https_check_only',
+      reddit: pillars.brandMentions?.redditMentions > 0 ? 'available' : 'unavailable',
+      github: pillars.brandMentions?.githubMentions > 0 ? 'available' : 'unavailable',
+      hackernews: pillars.brandMentions?.hackerNewsMentions > 0 ? 'available' : 'unavailable',
+      commoncrawl: pillars.searchVisibility?.globalPagesIndexed > 0 ? 'available' : 'unavailable',
+      builtwith: pillars.contentFootprint?.techStack?.length > 0 ? 'available' : 'unavailable'
     },
-    instructions: `Analyze this comprehensive brand diagnostic data and provide scores (0-100) for each of the 8 pillars:
+    instructions: `Analyze this comprehensive brand diagnostic data and provide scores (0-100) for each of the 8 pillars.
 
-1. Search Visibility - Evaluate based on search results across main, news, and content queries
-2. Digital Authority - Consider Wikipedia presence, domain age, and archived history
-3. Social Presence - Assess based on:
+DATA SOURCES USED:
+- DuckDuckGo: 6 different query types (main, news, complaints, reviews, alternatives, content)
+- Website Metadata: Full HTML + OG tags + structured data
+- Wikipedia: Existence check + content extract
+- Wayback Machine: Domain age + archive availability
+- Social Media: OG metadata from Instagram, X/Twitter, LinkedIn, TikTok (may be blocked)
+- RSS Feed: Detection + recent posts + publishing frequency
+- OpenPageRank: Page rank metrics
+- RDAP/WHOIS: Domain registration data
+- SSL Labs: HTTPS availability check
+- Reddit: Brand mentions and discussions
+- GitHub: Repositories and projects
+- Hacker News: Tech community mentions
+- Common Crawl: Global web index presence
+- BuiltWith: Website technology stack detection
+
+SCORING GUIDELINES:
+
+1. Search Visibility (0-100)
+   - Evaluate DuckDuckGo results across main, news, and content queries
+   - Consider Common Crawl global page indexing
+   - Weight: Higher counts indicate better visibility
+
+2. Digital Authority (0-100)
+   - Wikipedia presence (major authority signal)
+   - Domain age from Wayback Machine (older = more established)
+   - OpenPageRank metrics
+   - RDAP/WHOIS registration data
+   - HTTPS availability
+   - Hacker News mentions (tech authority)
+   - Weight factors: Wikipedia > Domain Age > PageRank
+
+3. Social Presence (0-100)
    - Number of platforms provided
    - Successfully fetched OG metadata (followers, bio, profile images)
-   - Instagram: may include followers count, posts count, bio from og:description
-   - TikTok: may include followers, likes from og:description
-   - X/Twitter: may include bio from og:description
-   - LinkedIn: may include company description from og:description
-   - Note: Some platforms may block OG fetching, check 'fetched: true/false' status
-   - Score based on platform presence AND quality of fetched metadata
-4. Brand Mentions - Analyze total mentions, news coverage, and review presence
-5. Sentiment Analysis - Evaluate based on complaints vs reviews ratio and snippets
-6. Content Footprint - Consider website metadata, RSS feed, blog presence, and content marketing
-7. Brand Consistency - Check consistency across titles, metadata, and social profiles
-8. Competitive Landscape - Assess industry positioning and alternatives found
+   - Estimated total follower count
+   - Note: Platforms may block fetching (check 'fetched: true/false')
+   - Score based on both platform diversity AND follower metrics
+
+4. Brand Mentions (0-100)
+   - DuckDuckGo mentions (news, reviews, general)
+   - Reddit discussions (posts count + engagement)
+   - GitHub mentions (repositories)
+   - Hacker News mentions
+   - Weight: News mentions > Reviews > Reddit > GitHub
+
+5. Sentiment Analysis (0-100)
+   - Complaints vs Reviews ratio
+   - Reddit discussion sentiment
+   - Review snippets analysis
+   - Score: Higher reviews + lower complaints = better score
+   - Neutral baseline: 50-60 if limited data
+
+6. Content Footprint (0-100)
+   - Website metadata quality
+   - RSS feed presence + publishing frequency
+   - Blog section detection
+   - Technology stack (BuiltWith)
+   - GitHub repositories (open source presence)
+   - Content search results
+   - Weight: Active RSS > Blog > Tech Stack > GitHub
+
+7. Brand Consistency (0-100)
+   - Title tag consistency (website, OG, Twitter)
+   - Social media profile completeness
+   - Branding elements across platforms
+   - Weight: Perfect consistency = 90-100, minor variations = 70-80
+
+8. Competitive Landscape (0-100)
+   - Industry/market specification
+   - Alternatives found (DuckDuckGo)
+   - GitHub alternatives/competitors
+   - Position relative to competitors
+   - Score: Few alternatives + strong authority = higher score
 
 IMPORTANT NOTES:
-- DuckDuckGo data may be limited or blocked (rate limits)
-- Social media: We fetch OG metadata which may include metrics, but platforms can block us
-- Focus on available data and provide realistic scores
-- Provide specific recommendations for each pillar based on gaps found
+- DuckDuckGo may be rate-limited (results could be 0)
+- Social media platforms may block OG fetching
+- Focus on available data, provide realistic scores
+- Provide specific, actionable recommendations for each pillar
+- Consider data availability when scoring (missing data shouldn't penalize unfairly)
 
 Return a structured JSON response with:
 {
@@ -1167,7 +1719,7 @@ Return a structured JSON response with:
     "brand_consistency": "specific actionable recommendation",
     "competitive_landscape": "specific actionable recommendation"
   },
-  "summary": "overall brand health summary and key takeaways"
+  "summary": "overall brand health summary and key takeaways (2-3 sentences)"
 }`
   };
 }
