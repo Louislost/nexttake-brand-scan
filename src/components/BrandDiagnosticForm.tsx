@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Instagram, Twitter, Linkedin, Music2, Globe, Loader2, Rocket, Sparkles } from "lucide-react";
+import { Instagram, Twitter, Linkedin, Music2, Globe, Loader2, Rocket, Sparkles, Webhook } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,6 +26,7 @@ const formSchema = z.object({
   tiktok: z.string().optional(),
   industry: z.string().optional(),
   market: z.string().optional(),
+  webhookUrl: z.string().url({ message: "Please enter a valid webhook URL" }).optional().or(z.literal("")),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -63,6 +64,7 @@ const BrandDiagnosticForm = () => {
           tiktok: data.tiktok || null,
           industry: data.industry || null,
           market: data.market || null,
+          webhookUrl: data.webhookUrl || null,
         }),
       });
 
@@ -245,6 +247,28 @@ const BrandDiagnosticForm = () => {
               </SelectContent>
             </Select>
           </div>
+        </div>
+
+        {/* Webhook URL - Optional */}
+        <div className="space-y-3 pt-4 border-t border-border/50">
+          <Label htmlFor="webhookUrl" className="text-lg font-semibold flex items-center gap-2">
+            <Webhook className="w-5 h-5 text-primary" />
+            Webhook Notification URL
+            <span className="text-xs text-muted-foreground font-normal ml-2">(Optional)</span>
+          </Label>
+          <p className="text-sm text-muted-foreground">
+            Receive a POST notification when your analysis is complete
+          </p>
+          <Input
+            id="webhookUrl"
+            type="url"
+            placeholder="https://your-app.com/webhook"
+            className={`h-12 text-base ${errors.webhookUrl ? 'border-destructive' : ''}`}
+            {...register("webhookUrl")}
+          />
+          {errors.webhookUrl && (
+            <p className="text-sm text-destructive">{errors.webhookUrl.message}</p>
+          )}
         </div>
 
         {/* CTA Button */}
