@@ -6,6 +6,45 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// ============= UTILITY FUNCTIONS =============
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(
+  url: string, 
+  options: RequestInit = {}, 
+  maxRetries: number = 3
+): Promise<Response> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+      
+      // If rate limited, wait and retry
+      if (response.status === 429) {
+        const waitTime = Math.pow(2, attempt) * 1000; // Exponential backoff
+        console.log(`Rate limited on ${url}, retrying in ${waitTime}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await delay(waitTime);
+        continue;
+      }
+      
+      return response;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Unknown error');
+      
+      if (attempt < maxRetries - 1) {
+        const waitTime = Math.pow(2, attempt) * 1000;
+        console.log(`Fetch failed for ${url}, retrying in ${waitTime}ms (attempt ${attempt + 1}/${maxRetries}):`, lastError.message);
+        await delay(waitTime);
+      }
+    }
+  }
+  
+  throw lastError || new Error('Max retries exceeded');
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -86,30 +125,12 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
   try {
     console.log('Processing brand diagnostic for input:', inputId);
 
-    // Parallel data collection - all 6 DDG queries + website + RSS + Wikipedia + Wayback + social
-    const [
-      websiteData,
-      rssData,
-      wikipediaData,
-      waybackData,
-      duckduckgoMain,
-      duckduckgoNews,
-      duckduckgoComplaints,
-      duckduckgoReviews,
-      duckduckgoAlternatives,
-      duckduckgoContent,
-      socialData
-    ] = await Promise.all([
+    // Parallel data collection for non-rate-limited APIs
+    const [websiteData, rssData, wikipediaData, waybackData, socialData] = await Promise.all([
       fetchWebsiteData(data.websiteUrl),
       fetchRSSFeed(data.websiteUrl),
       fetchWikipediaData(data.brandName),
       fetchWaybackData(data.websiteUrl),
-      fetchDuckDuckGoMain(data.brandName),
-      fetchDuckDuckGoNews(data.brandName),
-      fetchDuckDuckGoComplaints(data.brandName),
-      fetchDuckDuckGoReviews(data.brandName),
-      fetchDuckDuckGoAlternatives(data.brandName),
-      fetchDuckDuckGoContent(data.brandName),
       fetchSocialMediaData({
         instagram: data.instagram,
         x: data.x,
@@ -117,6 +138,25 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
         tiktok: data.tiktok
       })
     ]);
+
+    // Sequential DuckDuckGo queries with delays to avoid rate limits
+    console.log('Starting staggered DuckDuckGo queries (1.5s delays between queries)');
+    const duckduckgoMain = await fetchDuckDuckGoMain(data.brandName);
+    await delay(1500);
+    
+    const duckduckgoNews = await fetchDuckDuckGoNews(data.brandName);
+    await delay(1500);
+    
+    const duckduckgoComplaints = await fetchDuckDuckGoComplaints(data.brandName);
+    await delay(1500);
+    
+    const duckduckgoReviews = await fetchDuckDuckGoReviews(data.brandName);
+    await delay(1500);
+    
+    const duckduckgoAlternatives = await fetchDuckDuckGoAlternatives(data.brandName);
+    await delay(1500);
+    
+    const duckduckgoContent = await fetchDuckDuckGoContent(data.brandName);
 
     // Aggregate 8 pillars with complete data
     const pillars = aggregatePillars({
@@ -182,7 +222,7 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
 async function fetchWebsiteData(url: string) {
   try {
     console.log('Fetching website:', url);
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; BrandDiagnostic/1.0)'
       }
@@ -263,7 +303,7 @@ async function fetchRSSFeed(websiteUrl: string) {
     console.log('Detecting RSS feed for:', websiteUrl);
     
     // First fetch the website to detect RSS URL
-    const response = await fetch(websiteUrl, {
+    const response = await fetchWithRetry(websiteUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; BrandDiagnostic/1.0)'
       }
@@ -291,7 +331,7 @@ async function fetchRSSFeed(websiteUrl: string) {
     console.log('Fetching RSS feed:', rssUrl);
     
     // Fetch the RSS feed
-    const rssResponse = await fetch(rssUrl, {
+    const rssResponse = await fetchWithRetry(rssUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; BrandDiagnostic/1.0)'
       }
@@ -400,17 +440,19 @@ async function fetchDuckDuckGo(query: string, type: string) {
   try {
     console.log(`Fetching DuckDuckGo ${type} for:`, query);
     
-    const response = await fetch(
+    const response = await fetchWithRetry(
       `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
       {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
-      }
+      },
+      3 // 3 retries for DDG
     );
     
     if (!response.ok) {
-      return { success: false, blocked: true, type };
+      console.log(`DuckDuckGo ${type} returned status:`, response.status);
+      return { success: false, blocked: true, type, status: response.status };
     }
     
     const html = await response.text();
@@ -447,7 +489,7 @@ async function fetchDuckDuckGo(query: string, type: string) {
 async function fetchWikipediaData(brandName: string) {
   try {
     console.log('Fetching Wikipedia for:', brandName);
-    const response = await fetch(
+    const response = await fetchWithRetry(
       `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(brandName)}`
     );
     
@@ -474,7 +516,7 @@ async function fetchWikipediaData(brandName: string) {
 async function fetchWaybackData(url: string) {
   try {
     console.log('Fetching Wayback Machine for:', url);
-    const response = await fetch(
+    const response = await fetchWithRetry(
       `https://archive.org/wayback/available?url=${encodeURIComponent(url)}`
     );
     
@@ -527,19 +569,43 @@ const BROWSER_HEADERS = {
   'Cache-Control': 'max-age=0'
 };
 
+// Cookie storage for maintaining session-like behavior
+let cookieJar: { [domain: string]: string } = {};
+
+function extractCookies(response: Response, domain: string): void {
+  const setCookie = response.headers.get('set-cookie');
+  if (setCookie) {
+    cookieJar[domain] = setCookie;
+    console.log(`Stored cookies for ${domain}`);
+  }
+}
+
+function getCookieHeader(domain: string): string | undefined {
+  return cookieJar[domain];
+}
+
 async function fetchInstagramProfile(handle: string) {
   try {
     console.log('Fetching Instagram profile:', handle);
     const url = `https://www.instagram.com/${handle}/`;
+    const domain = 'instagram.com';
     
-    const response = await fetch(url, { 
-      headers: BROWSER_HEADERS,
+    const headers: any = { ...BROWSER_HEADERS };
+    const existingCookies = getCookieHeader(domain);
+    if (existingCookies) {
+      headers['Cookie'] = existingCookies;
+    }
+    
+    const response = await fetchWithRetry(url, { 
+      headers,
       redirect: 'follow'
-    });
+    }, 2);
+    
+    extractCookies(response, domain);
     
     if (!response.ok) {
       console.log('Instagram profile fetch failed:', response.status);
-      return { provided: true, handle, fetched: false, blocked: true };
+      return { provided: true, handle, fetched: false, blocked: true, status: response.status };
     }
     
     const html = await response.text();
@@ -584,15 +650,24 @@ async function fetchXProfile(handle: string) {
   try {
     console.log('Fetching X/Twitter profile:', handle);
     const url = `https://x.com/${handle}`;
+    const domain = 'x.com';
     
-    const response = await fetch(url, { 
-      headers: BROWSER_HEADERS,
+    const headers: any = { ...BROWSER_HEADERS };
+    const existingCookies = getCookieHeader(domain);
+    if (existingCookies) {
+      headers['Cookie'] = existingCookies;
+    }
+    
+    const response = await fetchWithRetry(url, { 
+      headers,
       redirect: 'follow'
-    });
+    }, 2);
+    
+    extractCookies(response, domain);
     
     if (!response.ok) {
       console.log('X profile fetch failed:', response.status);
-      return { provided: true, handle, fetched: false, blocked: true };
+      return { provided: true, handle, fetched: false, blocked: true, status: response.status };
     }
     
     const html = await response.text();
@@ -626,15 +701,24 @@ async function fetchTikTokProfile(handle: string) {
   try {
     console.log('Fetching TikTok profile:', handle);
     const url = `https://www.tiktok.com/@${handle}`;
+    const domain = 'tiktok.com';
     
-    const response = await fetch(url, { 
-      headers: BROWSER_HEADERS,
+    const headers: any = { ...BROWSER_HEADERS };
+    const existingCookies = getCookieHeader(domain);
+    if (existingCookies) {
+      headers['Cookie'] = existingCookies;
+    }
+    
+    const response = await fetchWithRetry(url, { 
+      headers,
       redirect: 'follow'
-    });
+    }, 2);
+    
+    extractCookies(response, domain);
     
     if (!response.ok) {
       console.log('TikTok profile fetch failed:', response.status);
-      return { provided: true, handle, fetched: false, blocked: true };
+      return { provided: true, handle, fetched: false, blocked: true, status: response.status };
     }
     
     const html = await response.text();
@@ -674,15 +758,24 @@ async function fetchLinkedInProfile(handle: string) {
   try {
     console.log('Fetching LinkedIn profile:', handle);
     const url = `https://www.linkedin.com/company/${handle}/`;
+    const domain = 'linkedin.com';
     
-    const response = await fetch(url, { 
-      headers: BROWSER_HEADERS,
+    const headers: any = { ...BROWSER_HEADERS };
+    const existingCookies = getCookieHeader(domain);
+    if (existingCookies) {
+      headers['Cookie'] = existingCookies;
+    }
+    
+    const response = await fetchWithRetry(url, { 
+      headers,
       redirect: 'follow'
-    });
+    }, 2);
+    
+    extractCookies(response, domain);
     
     if (!response.ok) {
       console.log('LinkedIn profile fetch failed:', response.status);
-      return { provided: true, handle, fetched: false, blocked: true };
+      return { provided: true, handle, fetched: false, blocked: true, status: response.status };
     }
     
     const html = await response.text();
@@ -713,43 +806,36 @@ async function fetchLinkedInProfile(handle: string) {
 }
 
 async function fetchSocialMediaData(handles: any) {
-  console.log('Fetching social media profiles with OG meta tags');
+  console.log('Fetching social media profiles with OG meta tags and retry logic');
   
-  // Parallel fetch for all provided handles
-  const promises = [];
+  // Fetch with small delays between platforms to be polite
+  const results: any = {
+    instagram: { provided: false },
+    x: { provided: false },
+    linkedin: { provided: false },
+    tiktok: { provided: false }
+  };
   
   if (handles.instagram) {
-    promises.push(fetchInstagramProfile(handles.instagram));
-  } else {
-    promises.push(Promise.resolve(null));
+    results.instagram = await fetchInstagramProfile(handles.instagram);
+    await delay(500);
   }
   
   if (handles.x) {
-    promises.push(fetchXProfile(handles.x));
-  } else {
-    promises.push(Promise.resolve(null));
+    results.x = await fetchXProfile(handles.x);
+    await delay(500);
   }
   
   if (handles.linkedin) {
-    promises.push(fetchLinkedInProfile(handles.linkedin));
-  } else {
-    promises.push(Promise.resolve(null));
+    results.linkedin = await fetchLinkedInProfile(handles.linkedin);
+    await delay(500);
   }
   
   if (handles.tiktok) {
-    promises.push(fetchTikTokProfile(handles.tiktok));
-  } else {
-    promises.push(Promise.resolve(null));
+    results.tiktok = await fetchTikTokProfile(handles.tiktok);
   }
   
-  const [instagram, x, linkedin, tiktok] = await Promise.all(promises);
-  
-  return {
-    instagram: instagram || { provided: false },
-    x: x || { provided: false },
-    linkedin: linkedin || { provided: false },
-    tiktok: tiktok || { provided: false }
-  };
+  return results;
 }
 
 // ============= 8 PILLAR AGGREGATION (EXACT N8N STRUCTURE) =============
