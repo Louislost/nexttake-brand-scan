@@ -48,23 +48,21 @@ const BrandDiagnosticForm = () => {
     setIsLoading(true);
     
     try {
-      // Send all form data to n8n webhook
-      const response = await fetch("https://atrinum.app.n8n.cloud/webhook/brand-diagnostic", {
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/brand-diagnostic`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`
         },
         body: JSON.stringify({
-          brand_name: data.brandName,
-          brand_website_url: data.websiteUrl,
+          brandName: data.brandName,
+          websiteUrl: data.websiteUrl,
           instagram: data.instagram || null,
           x: data.twitter || null,
           linkedin: data.linkedin || null,
           tiktok: data.tiktok || null,
           industry: data.industry || null,
           market: data.market || null,
-          ip_address: null, // IP will be captured by n8n server-side
-          user_agent: navigator.userAgent,
         }),
       });
 
@@ -73,10 +71,10 @@ const BrandDiagnosticForm = () => {
       }
       
       const responseData = await response.json();
-      console.log("n8n webhook response:", responseData);
+      console.log("Diagnostic started:", responseData);
       
-      // Redirect to results page with input_id from n8n response
       if (responseData.input_id) {
+        toast.success("Analysis started! Redirecting to results...");
         navigate(`/result?input_id=${responseData.input_id}`);
       } else {
         toast.error("Something went wrong. Please try again.");

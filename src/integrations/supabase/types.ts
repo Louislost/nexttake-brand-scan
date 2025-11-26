@@ -14,7 +14,95 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      brand_scans_inputs: {
+        Row: {
+          brand_name: string
+          brand_website_url: string
+          created_at: string
+          id: string
+          industry: string | null
+          instagram: string | null
+          ip_address: string | null
+          linkedin: string | null
+          market: string | null
+          tiktok: string | null
+          user_agent: string | null
+          x: string | null
+        }
+        Insert: {
+          brand_name: string
+          brand_website_url: string
+          created_at?: string
+          id?: string
+          industry?: string | null
+          instagram?: string | null
+          ip_address?: string | null
+          linkedin?: string | null
+          market?: string | null
+          tiktok?: string | null
+          user_agent?: string | null
+          x?: string | null
+        }
+        Update: {
+          brand_name?: string
+          brand_website_url?: string
+          created_at?: string
+          id?: string
+          industry?: string | null
+          instagram?: string | null
+          ip_address?: string | null
+          linkedin?: string | null
+          market?: string | null
+          tiktok?: string | null
+          user_agent?: string | null
+          x?: string | null
+        }
+        Relationships: []
+      }
+      brand_scans_results: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          id: string
+          input_id: string
+          overall_score: number | null
+          pillar_scores: Json | null
+          result_json: Json | null
+          status: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          input_id: string
+          overall_score?: number | null
+          pillar_scores?: Json | null
+          result_json?: Json | null
+          status?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          input_id?: string
+          overall_score?: number | null
+          pillar_scores?: Json | null
+          result_json?: Json | null
+          status?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "brand_scans_results_input_id_fkey"
+            columns: ["input_id"]
+            isOneToOne: false
+            referencedRelation: "brand_scans_inputs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

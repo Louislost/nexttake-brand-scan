@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import PillarScoreCard from "@/components/PillarScoreCard";
+import { Award, TrendingUp } from "lucide-react";
 
 const Result = () => {
   const [searchParams] = useSearchParams();
@@ -13,6 +15,9 @@ const Result = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<any>(null);
+  const [pillarScores, setPillarScores] = useState<any>(null);
+  const [overallScore, setOverallScore] = useState<number | null>(null);
+  const [status, setStatus] = useState<string>('processing');
   const [pollingCount, setPollingCount] = useState(0);
 
   useEffect(() => {
@@ -23,28 +28,41 @@ const Result = () => {
     }
 
     let pollInterval: NodeJS.Timeout;
-    const maxPolls = 10; // 10 polls × 2 seconds = 20 seconds max
+    const maxPolls = 60; // 60 polls × 5 seconds = 5 minutes max
 
     const fetchResults = async () => {
       try {
         const { data, error: fetchError } = await supabase
           .from("brand_scans_results")
-          .select("result_json")
+          .select("*")
           .eq("input_id", inputId)
           .limit(1)
           .maybeSingle();
 
         if (fetchError) throw fetchError;
 
-        if (data && data.result_json) {
-          // Results found!
-          setResults(data.result_json);
-          setLoading(false);
-          if (pollInterval) clearInterval(pollInterval);
-          return true;
+        if (data) {
+          setStatus(data.status);
+          
+          if (data.status === 'completed' && data.result_json) {
+            // Results found!
+            setResults(data.result_json);
+            setPillarScores(data.pillar_scores);
+            setOverallScore(data.overall_score);
+            setLoading(false);
+            if (pollInterval) clearInterval(pollInterval);
+            toast.success("Analysis complete!");
+            return true;
+          } else if (data.status === 'failed') {
+            setError(data.error_message || "Analysis failed");
+            setLoading(false);
+            if (pollInterval) clearInterval(pollInterval);
+            toast.error("Analysis failed");
+            return true;
+          }
         }
 
-        // No results yet, continue polling
+        // No results yet or still processing, continue polling
         return false;
       } catch (err) {
         console.error("Error fetching results:", err);
@@ -60,59 +78,26 @@ const Result = () => {
     fetchResults().then((shouldStop) => {
       if (shouldStop) return;
 
-      // Start polling every 2 seconds
+      // Start polling every 5 seconds
       pollInterval = setInterval(async () => {
         setPollingCount((prev) => {
           const newCount = prev + 1;
           if (newCount >= maxPolls) {
             clearInterval(pollInterval);
-            setError("No results found for this diagnostic.");
+            setError("Analysis is taking longer than expected. Please check back later.");
             setLoading(false);
           }
           return newCount;
         });
 
         await fetchResults();
-      }, 2000);
+      }, 5000);
     });
 
     return () => {
       if (pollInterval) clearInterval(pollInterval);
     };
   }, [inputId]);
-
-  const renderJsonSection = (title: string, data: any) => {
-    if (!data) return null;
-
-    if (typeof data === "object" && !Array.isArray(data)) {
-      return (
-        <div className="mb-6">
-          <h3 className="text-xl font-bold mb-3 text-foreground">{title}</h3>
-          <div className="space-y-2">
-            {Object.entries(data).map(([key, value]) => (
-              <div key={key} className="bg-muted/50 p-3 rounded-md">
-                <span className="font-semibold text-foreground capitalize">
-                  {key.replace(/_/g, " ")}:
-                </span>{" "}
-                <span className="text-muted-foreground">
-                  {typeof value === "object" ? JSON.stringify(value, null, 2) : String(value)}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="mb-6">
-        <h3 className="text-xl font-bold mb-3 text-foreground">{title}</h3>
-        <pre className="bg-muted/50 p-4 rounded-md overflow-auto text-sm text-muted-foreground">
-          {JSON.stringify(data, null, 2)}
-        </pre>
-      </div>
-    );
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-secondary/20">
@@ -137,8 +122,12 @@ const Result = () => {
                   <div className="flex justify-center">
                     <div className="w-16 h-16 rounded-full border-4 border-primary/20 border-t-primary animate-spin"></div>
                   </div>
-                  <p className="text-lg font-semibold text-foreground">Your brand diagnostic is processing… Please wait.</p>
-                  <p className="text-sm text-muted-foreground">This may take up to 20 seconds.</p>
+                  <p className="text-lg font-semibold text-foreground">
+                    {status === 'processing' ? 'Your brand diagnostic is processing…' : 'Loading results…'}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    This may take up to 5 minutes. We're analyzing multiple data sources.
+                  </p>
                 </div>
               )}
 
@@ -148,11 +137,53 @@ const Result = () => {
                 </div>
               )}
 
-              {!loading && !error && results && (
-                <div>
-                  <pre className="bg-muted/50 p-4 rounded-md overflow-auto text-sm text-foreground">
-                    {JSON.stringify(results, null, 2)}
-                  </pre>
+              {!loading && !error && overallScore !== null && (
+                <div className="space-y-8">
+                  {/* Overall Score */}
+                  <Card className="bg-gradient-to-br from-primary/10 to-accent/10 border-2 border-primary/20">
+                    <CardContent className="p-8 text-center">
+                      <Award className="w-16 h-16 mx-auto mb-4 text-primary" />
+                      <h2 className="text-2xl font-bold mb-2">Overall Brand Health Score</h2>
+                      <div className="flex items-baseline justify-center gap-2">
+                        <span className="text-7xl font-black text-primary">{overallScore}</span>
+                        <span className="text-3xl text-muted-foreground">/100</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Pillar Scores Grid */}
+                  {pillarScores && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-6">
+                        <TrendingUp className="w-6 h-6 text-primary" />
+                        <h2 className="text-2xl font-bold">8 Pillar Analysis</h2>
+                      </div>
+                      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <PillarScoreCard name="Search Visibility" score={pillarScores.searchVisibility || 0} />
+                        <PillarScoreCard name="Digital Authority" score={pillarScores.digitalAuthority || 0} />
+                        <PillarScoreCard name="Social Presence" score={pillarScores.socialPresence || 0} />
+                        <PillarScoreCard name="Brand Mentions" score={pillarScores.brandMentions || 0} />
+                        <PillarScoreCard name="Sentiment" score={pillarScores.sentimentAnalysis || 0} />
+                        <PillarScoreCard name="Content Footprint" score={pillarScores.contentFootprint || 0} />
+                        <PillarScoreCard name="Brand Consistency" score={pillarScores.brandConsistency || 0} />
+                        <PillarScoreCard name="Competitive Landscape" score={pillarScores.competitiveLandscape || 0} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Detailed Results */}
+                  {results && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Detailed Analysis</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <pre className="bg-muted/50 p-4 rounded-md overflow-auto text-sm text-foreground max-h-96">
+                          {JSON.stringify(results, null, 2)}
+                        </pre>
+                      </CardContent>
+                    </Card>
+                  )}
                 </div>
               )}
             </CardContent>
