@@ -11,6 +11,32 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Helper function to log fetch results for internal debugging
+async function logFetchResult(
+  supabase: any,
+  inputId: string,
+  source: string,
+  status: 'success' | 'failed' | 'blocked' | 'timeout',
+  durationMs: number,
+  errorMessage: string | null = null,
+  dataSize: number | null = null
+) {
+  try {
+    await supabase
+      .from('brand_scan_logs')
+      .insert({
+        input_id: inputId,
+        source,
+        status,
+        duration_ms: durationMs,
+        error_message: errorMessage,
+        data_size: dataSize
+      });
+  } catch (logError) {
+    console.error(`Failed to log ${source}:`, logError);
+  }
+}
+
 async function fetchWithRetry(
   url: string, 
   options: RequestInit = {}, 
@@ -124,39 +150,103 @@ serve(async (req) => {
 async function processBrandDiagnostic(supabase: any, inputId: string, data: any) {
   try {
     console.log('Processing brand diagnostic for input:', inputId);
+    const startTime = Date.now();
 
     // Parallel data collection for non-rate-limited APIs
     const [websiteData, rssData, wikipediaData, waybackData, socialData] = await Promise.all([
-      fetchWebsiteData(data.websiteUrl),
-      fetchRSSFeed(data.websiteUrl),
-      fetchWikipediaData(data.brandName),
-      fetchWaybackData(data.websiteUrl),
-      fetchSocialMediaData({
-        instagram: data.instagram,
-        x: data.x,
-        linkedin: data.linkedin,
-        tiktok: data.tiktok
-      })
+      (async () => {
+        const fetchStart = Date.now();
+        try {
+          const result = await fetchWebsiteData(data.websiteUrl);
+          await logFetchResult(supabase, inputId, 'website', result ? 'success' : 'failed', Date.now() - fetchStart, null, result ? JSON.stringify(result).length : 0);
+          return result;
+        } catch (err) {
+          await logFetchResult(supabase, inputId, 'website', 'failed', Date.now() - fetchStart, err instanceof Error ? err.message : 'Unknown error', 0);
+          return null;
+        }
+      })(),
+      (async () => {
+        const fetchStart = Date.now();
+        try {
+          const result = await fetchRSSFeed(data.websiteUrl);
+          await logFetchResult(supabase, inputId, 'rss', result ? 'success' : 'failed', Date.now() - fetchStart, null, result ? JSON.stringify(result).length : 0);
+          return result;
+        } catch (err) {
+          await logFetchResult(supabase, inputId, 'rss', 'failed', Date.now() - fetchStart, err instanceof Error ? err.message : 'Unknown error', 0);
+          return null;
+        }
+      })(),
+      (async () => {
+        const fetchStart = Date.now();
+        try {
+          const result = await fetchWikipediaData(data.brandName);
+          await logFetchResult(supabase, inputId, 'wikipedia', result ? 'success' : 'failed', Date.now() - fetchStart, null, result ? JSON.stringify(result).length : 0);
+          return result;
+        } catch (err) {
+          await logFetchResult(supabase, inputId, 'wikipedia', 'failed', Date.now() - fetchStart, err instanceof Error ? err.message : 'Unknown error', 0);
+          return null;
+        }
+      })(),
+      (async () => {
+        const fetchStart = Date.now();
+        try {
+          const result = await fetchWaybackData(data.websiteUrl);
+          await logFetchResult(supabase, inputId, 'wayback', result ? 'success' : 'failed', Date.now() - fetchStart, null, result ? JSON.stringify(result).length : 0);
+          return result;
+        } catch (err) {
+          await logFetchResult(supabase, inputId, 'wayback', 'failed', Date.now() - fetchStart, err instanceof Error ? err.message : 'Unknown error', 0);
+          return null;
+        }
+      })(),
+      (async () => {
+        const fetchStart = Date.now();
+        try {
+          const result = await fetchSocialMediaData({
+            instagram: data.instagram,
+            x: data.x,
+            linkedin: data.linkedin,
+            tiktok: data.tiktok
+          });
+          await logFetchResult(supabase, inputId, 'social_media', 'success', Date.now() - fetchStart, null, JSON.stringify(result).length);
+          return result;
+        } catch (err) {
+          await logFetchResult(supabase, inputId, 'social_media', 'failed', Date.now() - fetchStart, err instanceof Error ? err.message : 'Unknown error', 0);
+          return { instagram: null, x: null, linkedin: null, tiktok: null };
+        }
+      })()
     ]);
 
     // Sequential DuckDuckGo queries with delays to avoid rate limits
     console.log('Starting staggered DuckDuckGo queries (1.5s delays between queries)');
-    const duckduckgoMain = await fetchDuckDuckGoMain(data.brandName);
+    
+    const fetchDDG = async (fetchFn: () => Promise<any>, type: string) => {
+      const fetchStart = Date.now();
+      try {
+        const result = await fetchFn();
+        await logFetchResult(supabase, inputId, `duckduckgo_${type}`, result ? 'success' : 'failed', Date.now() - fetchStart, null, result ? JSON.stringify(result).length : 0);
+        return result;
+      } catch (err) {
+        await logFetchResult(supabase, inputId, `duckduckgo_${type}`, 'failed', Date.now() - fetchStart, err instanceof Error ? err.message : 'Unknown error', 0);
+        return null;
+      }
+    };
+    
+    const duckduckgoMain = await fetchDDG(() => fetchDuckDuckGoMain(data.brandName), 'main');
     await delay(1500);
     
-    const duckduckgoNews = await fetchDuckDuckGoNews(data.brandName);
+    const duckduckgoNews = await fetchDDG(() => fetchDuckDuckGoNews(data.brandName), 'news');
     await delay(1500);
     
-    const duckduckgoComplaints = await fetchDuckDuckGoComplaints(data.brandName);
+    const duckduckgoComplaints = await fetchDDG(() => fetchDuckDuckGoComplaints(data.brandName), 'complaints');
     await delay(1500);
     
-    const duckduckgoReviews = await fetchDuckDuckGoReviews(data.brandName);
+    const duckduckgoReviews = await fetchDDG(() => fetchDuckDuckGoReviews(data.brandName), 'reviews');
     await delay(1500);
     
-    const duckduckgoAlternatives = await fetchDuckDuckGoAlternatives(data.brandName);
+    const duckduckgoAlternatives = await fetchDDG(() => fetchDuckDuckGoAlternatives(data.brandName), 'alternatives');
     await delay(1500);
     
-    const duckduckgoContent = await fetchDuckDuckGoContent(data.brandName);
+    const duckduckgoContent = await fetchDDG(() => fetchDuckDuckGoContent(data.brandName), 'content');
 
     // Aggregate 8 pillars with complete data
     const pillars = aggregatePillars({
@@ -180,6 +270,13 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
     });
 
     console.log('Pillars aggregated:', Object.keys(pillars));
+
+    // Store raw pillars data before AI processing
+    console.log('Storing raw pillars data...');
+    await supabase
+      .from('brand_scans_results')
+      .update({ raw_pillars_json: pillars })
+      .eq('input_id', inputId);
 
     // Build payload for OpenAI Assistant
     const aiPayload = buildAIPayload(data.brandName, pillars);
@@ -1022,14 +1119,22 @@ function buildAIPayload(brandName: string, pillars: any) {
       wikipedia: pillars.digitalAuthority?.wikipedia?.exists ? 'available' : 'unavailable',
       wayback: pillars.digitalAuthority?.wayback?.available ? 'available' : 'unavailable',
       duckduckgo: 'partial',
-      social_media: 'handles_only',
+      social_media: 'og_metadata_with_metrics',
       rss: pillars.contentFootprint?.rss?.found ? 'available' : 'unavailable'
     },
     instructions: `Analyze this comprehensive brand diagnostic data and provide scores (0-100) for each of the 8 pillars:
 
 1. Search Visibility - Evaluate based on search results across main, news, and content queries
 2. Digital Authority - Consider Wikipedia presence, domain age, and archived history
-3. Social Presence - Assess number and variety of social media profiles
+3. Social Presence - Assess based on:
+   - Number of platforms provided
+   - Successfully fetched OG metadata (followers, bio, profile images)
+   - Instagram: may include followers count, posts count, bio from og:description
+   - TikTok: may include followers, likes from og:description
+   - X/Twitter: may include bio from og:description
+   - LinkedIn: may include company description from og:description
+   - Note: Some platforms may block OG fetching, check 'fetched: true/false' status
+   - Score based on platform presence AND quality of fetched metadata
 4. Brand Mentions - Analyze total mentions, news coverage, and review presence
 5. Sentiment Analysis - Evaluate based on complaints vs reviews ratio and snippets
 6. Content Footprint - Consider website metadata, RSS feed, blog presence, and content marketing
@@ -1038,7 +1143,7 @@ function buildAIPayload(brandName: string, pillars: any) {
 
 IMPORTANT NOTES:
 - DuckDuckGo data may be limited or blocked (rate limits)
-- Social media data is handles only (no real metrics scraped)
+- Social media: We fetch OG metadata which may include metrics, but platforms can block us
 - Focus on available data and provide realistic scores
 - Provide specific recommendations for each pillar based on gaps found
 
@@ -1053,9 +1158,16 @@ Return a structured JSON response with:
   "brand_consistency_score": 0-100,
   "competitive_landscape_score": 0-100,
   "recommendations": {
-    "pillar_name": "specific actionable recommendation"
+    "search_visibility": "specific actionable recommendation",
+    "digital_authority": "specific actionable recommendation",
+    "social_presence": "specific actionable recommendation",
+    "brand_mentions": "specific actionable recommendation",
+    "sentiment_analysis": "specific actionable recommendation",
+    "content_footprint": "specific actionable recommendation",
+    "brand_consistency": "specific actionable recommendation",
+    "competitive_landscape": "specific actionable recommendation"
   },
-  "summary": "overall brand health summary"
+  "summary": "overall brand health summary and key takeaways"
 }`
   };
 }
