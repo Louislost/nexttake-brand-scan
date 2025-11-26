@@ -370,38 +370,25 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
       .update({ raw_pillars_json: pillars })
       .eq('input_id', inputId);
 
-    // ============= PHASE 4: AI ANALYSIS =============
+    // ============= PHASE 4: AI ANALYSIS (ASYNC) =============
     const aiPayload = buildAIPayload(data.brandName, pillars);
-    const assistantResult = await callOpenAIAssistant(aiPayload);
+    const { threadId, runId } = await callOpenAIAssistant(aiPayload);
 
-    // Extract scores from assistant response
-    const pillarScores = extractPillarScores(assistantResult);
-    const overallScore = calculateOverallScore(pillarScores);
+    console.log('OpenAI run started:', threadId, runId);
 
-    // ============= PHASE 5: UPDATE RESULTS =============
+    // ============= PHASE 5: UPDATE WITH THREAD/RUN IDs =============
     await supabase
       .from('brand_scans_results')
       .update({
-        result_json: assistantResult,
-        pillar_scores: pillarScores,
-        overall_score: overallScore,
-        status: 'completed'
+        thread_id: threadId,
+        run_id: runId,
+        status: 'analyzing'
       })
       .eq('input_id', inputId);
 
-    // ============= PHASE 6: STORE IN CACHE =============
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    await supabase
-      .from('brand_scan_cache')
-      .upsert({
-        cache_key: cacheKey,
-        data: { pillars, result_json: assistantResult, pillar_scores: pillarScores, overall_score: overallScore },
-        expires_at: expiresAt
-      }, { onConflict: 'cache_key' });
+    console.log('Thread and run IDs saved, analysis in progress');
 
-    console.log('Results cached with key:', cacheKey);
-
-    console.log('Brand diagnostic completed for:', inputId);
+    console.log('Brand diagnostic data collection completed for:', inputId, '- waiting for AI analysis');
 
   } catch (error) {
     console.error('Error processing brand diagnostic:', error);
@@ -1462,7 +1449,8 @@ Return a structured JSON response with:
 }
 
 // ============= OPENAI ASSISTANT API V2 =============
-async function callOpenAIAssistant(payload: any) {
+// Modified to return thread_id and run_id immediately without polling
+async function callOpenAIAssistant(payload: any): Promise<{ threadId: string; runId: string }> {
   const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
   
   if (!OPENAI_API_KEY) {
@@ -1536,73 +1524,10 @@ async function callOpenAIAssistant(payload: any) {
   const run = await runResponse.json();
   const runId = run.id;
 
-  console.log('Polling for completion...');
+  console.log('Run created:', runId, '- returning immediately without polling');
 
-  let runStatus = run.status;
-  let attempts = 0;
-  const maxAttempts = 60;
-
-  while (runStatus !== 'completed' && runStatus !== 'failed' && attempts < maxAttempts) {
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    
-    const statusResponse = await fetch(`https://api.openai.com/v1/threads/${threadId}/runs/${runId}`, {
-      headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        'OpenAI-Beta': 'assistants=v2'
-      }
-    });
-
-    if (!statusResponse.ok) {
-      console.error('Failed to check run status:', statusResponse.status);
-      throw new Error(`OpenAI status check failed: ${statusResponse.status}`);
-    }
-
-    const statusData = await statusResponse.json();
-    runStatus = statusData.status;
-    attempts++;
-    
-    console.log(`Run status: ${runStatus} (attempt ${attempts}/${maxAttempts})`);
-  }
-
-  if (runStatus !== 'completed') {
-    throw new Error(`Assistant run failed with status: ${runStatus}`);
-  }
-
-  console.log('Retrieving messages...');
-
-  const messagesResponse = await fetch(`https://api.openai.com/v1/threads/${threadId}/messages`, {
-    headers: {
-      'Authorization': `Bearer ${OPENAI_API_KEY}`,
-      'OpenAI-Beta': 'assistants=v2'
-    }
-  });
-
-  if (!messagesResponse.ok) {
-    const errorText = await messagesResponse.text();
-    console.error('Failed to retrieve messages:', messagesResponse.status, errorText);
-    throw new Error(`OpenAI messages retrieval failed: ${messagesResponse.status}`);
-  }
-
-  const messages = await messagesResponse.json();
-  const assistantMessage = messages.data.find((m: any) => m.role === 'assistant');
-
-  if (!assistantMessage) {
-    throw new Error('No assistant response found');
-  }
-
-  const textContent = assistantMessage.content.find((c: any) => c.type === 'text');
-  let responseText = textContent?.text?.value || '';
-
-  // Strip markdown code blocks if present
-  responseText = responseText.replace(/^```json\s*\n?/i, '').replace(/^```\s*\n?/, '').replace(/\n?```\s*$/g, '').trim();
-
-  try {
-    return JSON.parse(responseText);
-  } catch (parseError) {
-    console.error('Failed to parse AI response as JSON:', parseError);
-    console.error('Response text:', responseText);
-    return { raw_response: responseText };
-  }
+  // Return thread and run IDs immediately without polling
+  return { threadId, runId };
 }
 
 // ============= SCORE EXTRACTION =============
