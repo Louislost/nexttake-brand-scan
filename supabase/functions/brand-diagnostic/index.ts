@@ -11,11 +11,11 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// MD5 hash function for cache keys
-async function md5(text: string): Promise<string> {
+// SHA-256 hash function for cache keys
+async function hashCacheKey(text: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(text);
-  const hashBuffer = await crypto.subtle.digest('MD5', data);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
@@ -163,7 +163,7 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
 
     // ============= PHASE 1: CHECK CACHE =============
     const domain = new URL(data.websiteUrl).hostname;
-    const cacheKey = await md5(`${data.brandName}|${domain}`);
+    const cacheKey = await hashCacheKey(`${data.brandName}|${domain}`);
     
     console.log('Checking cache with key:', cacheKey);
     const { data: cachedData, error: cacheError } = await supabase
@@ -334,7 +334,7 @@ async function processBrandDiagnostic(supabase: any, inputId: string, data: any)
     const duckduckgoAlternatives = await fetchDDG(() => fetchDuckDuckGoAlternatives(data.brandName), 'alternatives');
     await delay(1500);
     
-    const duckduckgoContent = await fetchDDG(() => fetchDuckDuckGoContent(data.brandName), 'content');
+    const duckduckgoContent = await fetchDDG(() => fetchDuckDuckGoContent(domain), 'content');
 
     // ============= PHASE 3: AGGREGATE PILLARS =============
     const pillars = aggregatePillars({
@@ -806,8 +806,8 @@ async function fetchDuckDuckGoAlternatives(brandName: string) {
   return fetchDuckDuckGo(`"${brandName}" alternatives OR competitors`);
 }
 
-async function fetchDuckDuckGoContent(brandName: string) {
-  return fetchDuckDuckGo(`site:${brandName} blog OR articles OR content`);
+async function fetchDuckDuckGoContent(domain: string) {
+  return fetchDuckDuckGo(`site:${domain} blog OR articles OR content`);
 }
 
 // ============= WIKIPEDIA =============
@@ -1464,6 +1464,11 @@ Return a structured JSON response with:
 // ============= OPENAI ASSISTANT API V2 =============
 async function callOpenAIAssistant(payload: any) {
   const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+  
+  if (!OPENAI_API_KEY) {
+    throw new Error('OPENAI_API_KEY is not configured. Please add it to your secrets.');
+  }
+  
   const ASSISTANT_ID = 'asst_b7HEiJmlfVfr2j2yWRfJm4Wb';
 
   console.log('Creating thread...');
@@ -1478,12 +1483,18 @@ async function callOpenAIAssistant(payload: any) {
     body: JSON.stringify({})
   });
 
+  if (!threadResponse.ok) {
+    const errorText = await threadResponse.text();
+    console.error('Failed to create thread:', threadResponse.status, errorText);
+    throw new Error(`OpenAI thread creation failed: ${threadResponse.status}`);
+  }
+
   const thread = await threadResponse.json();
   const threadId = thread.id;
 
   console.log('Adding message to thread:', threadId);
 
-  await fetch(`https://api.openai.com/v1/threads/${threadId}/messages`, {
+  const messageResponse = await fetch(`https://api.openai.com/v1/threads/${threadId}/messages`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${OPENAI_API_KEY}`,
@@ -1495,6 +1506,12 @@ async function callOpenAIAssistant(payload: any) {
       content: JSON.stringify(payload, null, 2)
     })
   });
+
+  if (!messageResponse.ok) {
+    const errorText = await messageResponse.text();
+    console.error('Failed to add message:', messageResponse.status, errorText);
+    throw new Error(`OpenAI message creation failed: ${messageResponse.status}`);
+  }
 
   console.log('Creating run...');
 
@@ -1509,6 +1526,12 @@ async function callOpenAIAssistant(payload: any) {
       assistant_id: ASSISTANT_ID
     })
   });
+
+  if (!runResponse.ok) {
+    const errorText = await runResponse.text();
+    console.error('Failed to create run:', runResponse.status, errorText);
+    throw new Error(`OpenAI run creation failed: ${runResponse.status}`);
+  }
 
   const run = await runResponse.json();
   const runId = run.id;
@@ -1528,6 +1551,11 @@ async function callOpenAIAssistant(payload: any) {
         'OpenAI-Beta': 'assistants=v2'
       }
     });
+
+    if (!statusResponse.ok) {
+      console.error('Failed to check run status:', statusResponse.status);
+      throw new Error(`OpenAI status check failed: ${statusResponse.status}`);
+    }
 
     const statusData = await statusResponse.json();
     runStatus = statusData.status;
@@ -1549,6 +1577,12 @@ async function callOpenAIAssistant(payload: any) {
     }
   });
 
+  if (!messagesResponse.ok) {
+    const errorText = await messagesResponse.text();
+    console.error('Failed to retrieve messages:', messagesResponse.status, errorText);
+    throw new Error(`OpenAI messages retrieval failed: ${messagesResponse.status}`);
+  }
+
   const messages = await messagesResponse.json();
   const assistantMessage = messages.data.find((m: any) => m.role === 'assistant');
 
@@ -1557,11 +1591,16 @@ async function callOpenAIAssistant(payload: any) {
   }
 
   const textContent = assistantMessage.content.find((c: any) => c.type === 'text');
-  const responseText = textContent?.text?.value || '';
+  let responseText = textContent?.text?.value || '';
+
+  // Strip markdown code blocks if present
+  responseText = responseText.replace(/^```json\s*\n?/i, '').replace(/^```\s*\n?/, '').replace(/\n?```\s*$/g, '').trim();
 
   try {
     return JSON.parse(responseText);
-  } catch {
+  } catch (parseError) {
+    console.error('Failed to parse AI response as JSON:', parseError);
+    console.error('Response text:', responseText);
     return { raw_response: responseText };
   }
 }
