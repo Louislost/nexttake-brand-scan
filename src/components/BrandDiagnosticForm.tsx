@@ -2,17 +2,10 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Instagram, Twitter, Linkedin, Music2, Globe, Loader2, Rocket, Sparkles, Webhook } from "lucide-react";
+import { Instagram, Twitter, Linkedin, Music2, Globe, Loader2, Rocket, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
@@ -26,7 +19,6 @@ const formSchema = z.object({
   tiktok: z.string().optional(),
   industry: z.string().optional(),
   market: z.string().optional(),
-  webhookUrl: z.string().url({ message: "Please enter a valid webhook URL" }).optional().or(z.literal("")),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -39,8 +31,6 @@ const BrandDiagnosticForm = () => {
     register,
     handleSubmit,
     formState: { errors },
-    setValue,
-    watch,
   } = useForm<FormData>({
     resolver: zodResolver(formSchema),
   });
@@ -64,7 +54,6 @@ const BrandDiagnosticForm = () => {
           tiktok: data.tiktok || null,
           industry: data.industry || null,
           market: data.market || null,
-          webhookUrl: data.webhookUrl || null,
         }),
       });
 
@@ -195,32 +184,19 @@ const BrandDiagnosticForm = () => {
           </div>
         </div>
 
-        {/* Industry & Market Dropdowns */}
+        {/* Industry & Market Text Inputs */}
         <div className="grid md:grid-cols-2 gap-6">
           {/* Industry */}
           <div className="space-y-2">
             <Label htmlFor="industry" className="text-base font-semibold">
               Industry
             </Label>
-            <Select
-              onValueChange={(value) => setValue("industry", value)}
-              defaultValue={watch("industry")}
-            >
-              <SelectTrigger className="h-12 text-base">
-                <SelectValue placeholder="Select industry" />
-              </SelectTrigger>
-              <SelectContent className="bg-card">
-                <SelectItem value="consumer-products">Consumer Products</SelectItem>
-                <SelectItem value="retail">Retail</SelectItem>
-                <SelectItem value="cosmetics-beauty">Cosmetics & Beauty</SelectItem>
-                <SelectItem value="food-beverage">Food & Beverage</SelectItem>
-                <SelectItem value="hospitality">Hospitality</SelectItem>
-                <SelectItem value="tech-saas">Tech / SaaS</SelectItem>
-                <SelectItem value="fashion">Fashion</SelectItem>
-                <SelectItem value="fitness-wellness">Fitness & Wellness</SelectItem>
-                <SelectItem value="other">Other</SelectItem>
-              </SelectContent>
-            </Select>
+            <Input
+              id="industry"
+              placeholder="e.g., Fashion, Tech, Food & Beverage"
+              className="h-12"
+              {...register("industry")}
+            />
           </div>
 
           {/* Market */}
@@ -228,47 +204,13 @@ const BrandDiagnosticForm = () => {
             <Label htmlFor="market" className="text-base font-semibold">
               Market / Country
             </Label>
-            <Select
-              onValueChange={(value) => setValue("market", value)}
-              defaultValue={watch("market")}
-            >
-              <SelectTrigger className="h-12 text-base">
-                <SelectValue placeholder="Select market" />
-              </SelectTrigger>
-              <SelectContent className="bg-card">
-                <SelectItem value="worldwide">Worldwide</SelectItem>
-                <SelectItem value="europe">Europe</SelectItem>
-                <SelectItem value="france">France</SelectItem>
-                <SelectItem value="uk">UK</SelectItem>
-                <SelectItem value="usa">USA</SelectItem>
-                <SelectItem value="latam">LATAM</SelectItem>
-                <SelectItem value="middle-east">Middle East</SelectItem>
-                <SelectItem value="asia-pacific">Asia-Pacific</SelectItem>
-              </SelectContent>
-            </Select>
+            <Input
+              id="market"
+              placeholder="e.g., USA, Europe, Worldwide"
+              className="h-12"
+              {...register("market")}
+            />
           </div>
-        </div>
-
-        {/* Webhook URL - Optional */}
-        <div className="space-y-3 pt-4 border-t border-border/50">
-          <Label htmlFor="webhookUrl" className="text-lg font-semibold flex items-center gap-2">
-            <Webhook className="w-5 h-5 text-primary" />
-            Webhook Notification URL
-            <span className="text-xs text-muted-foreground font-normal ml-2">(Optional)</span>
-          </Label>
-          <p className="text-sm text-muted-foreground">
-            Receive a POST notification when your analysis is complete
-          </p>
-          <Input
-            id="webhookUrl"
-            type="url"
-            placeholder="https://your-app.com/webhook"
-            className={`h-12 text-base ${errors.webhookUrl ? 'border-destructive' : ''}`}
-            {...register("webhookUrl")}
-          />
-          {errors.webhookUrl && (
-            <p className="text-sm text-destructive">{errors.webhookUrl.message}</p>
-          )}
         </div>
 
         {/* CTA Button */}
