@@ -115,7 +115,7 @@ All colors MUST be HSL.
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
-    animation: gradient-shift 3s ease-in-out infinite;
+    animation: gradient-shift 1.2s ease-in-out infinite;
   }
 
   @keyframes gradient-shift {
