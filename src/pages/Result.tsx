@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import Header from "@/components/Header";
+import AnimatedBackground from "@/components/AnimatedBackground";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
@@ -155,68 +156,71 @@ const Result = () => {
   }, [inputId]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-secondary/20">
+    <div className="min-h-screen relative">
+      <AnimatedBackground />
       <Header />
-      <main className="pb-20">
-        <section className="pt-32 pb-12 px-4 animate-fade-in">
-          <div className="container mx-auto max-w-4xl text-left">
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-black mb-6 leading-tight md:leading-[1.15] lg:leading-[1.2] uppercase max-w-7xl bg-secondary inline-block px-4 py-3">
-              Your Brand Diagnostic Results
+      <main className="pb-24 relative z-10">
+        <section className="pt-36 pb-16 px-4 animate-fade-in">
+          <div className="container mx-auto max-w-5xl text-center">
+            <h1 className="text-5xl md:text-6xl lg:text-7xl font-extrabold mb-8 leading-tight tracking-tight">
+              <span className="text-primary">Your Brand</span>
+              {" "}
+              <span className="text-foreground">Diagnostic Results</span>
             </h1>
           </div>
         </section>
 
-        <div className="container mx-auto px-4 max-w-4xl">
-          <Card className="shadow-lg">
+        <div className="container mx-auto px-4 max-w-5xl">
+          <Card className="backdrop-blur-xl bg-white/70 border border-white/20 shadow-[var(--shadow-glass)]">
             <CardHeader>
-              <CardTitle className="text-2xl">Diagnostic Report</CardTitle>
+              <CardTitle className="text-3xl font-bold">Diagnostic Report</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="space-y-8">
               {loading && (
-                <div className="space-y-4 text-center">
+                <div className="space-y-4 text-center py-12">
                   <div className="flex justify-center">
-                    <div className="w-16 h-16 rounded-full border-4 border-primary/20 border-t-primary animate-spin"></div>
+                    <div className="w-20 h-20 rounded-full border-4 border-primary/20 border-t-primary animate-spin"></div>
                   </div>
-                  <p className="text-lg font-semibold text-foreground">
+                  <p className="text-xl font-semibold text-foreground">
                     {status === 'processing' ? 'Collecting brand data from multiple sources…' : 
                      status === 'analyzing' ? 'AI is analyzing your brand data…' : 
                      'Loading results…'}
                   </p>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-base text-muted-foreground">
                     This may take up to 5 minutes. We're analyzing multiple data sources.
                   </p>
                 </div>
               )}
 
               {error && (
-                <div className="bg-destructive/10 border border-destructive/20 rounded-md p-4">
-                  <p className="text-destructive font-semibold">{error}</p>
+                <div className="backdrop-blur-sm bg-destructive/10 border-2 border-destructive/20 rounded-lg p-6">
+                  <p className="text-destructive font-semibold text-lg">{error}</p>
                 </div>
               )}
 
               {!loading && !error && overallScore !== null && (
-                <div className="space-y-8">
+                <div className="space-y-10">
                   {/* Overall Score */}
-                  <Card className="bg-gradient-to-br from-primary/10 to-accent/10 border-2 border-primary/20">
-                    <CardContent className="p-8 text-center">
-                      <Award className="w-16 h-16 mx-auto mb-4 text-primary" />
-                      <h2 className="text-2xl font-bold mb-2">Overall Brand Health Score</h2>
-                      <div className="flex items-baseline justify-center gap-2">
-                        <span className="text-7xl font-black text-primary">{overallScore}</span>
-                        <span className="text-3xl text-muted-foreground">/100</span>
+                  <Card className="backdrop-blur-md bg-gradient-to-br from-primary/15 to-accent/15 border-2 border-primary/30 shadow-[var(--shadow-medium)] transition-all duration-300 hover:scale-[1.02]">
+                    <CardContent className="p-10 text-center">
+                      <Award className="w-20 h-20 mx-auto mb-6 text-primary" />
+                      <h2 className="text-3xl font-bold mb-4 text-foreground">Overall Brand Health Score</h2>
+                      <div className="flex items-baseline justify-center gap-3">
+                        <span className="text-8xl font-black text-primary">{overallScore}</span>
+                        <span className="text-4xl text-muted-foreground">/100</span>
                       </div>
                     </CardContent>
                   </Card>
 
                   {/* Executive Summary */}
                   {summary && (
-                    <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border-blue-200 dark:border-blue-800">
-                      <CardContent className="p-6">
-                        <h3 className="text-xl font-bold mb-3 flex items-center gap-2">
-                          <FileText className="w-5 h-5" />
+                    <Card className="backdrop-blur-md bg-gradient-to-br from-blue-50/80 to-indigo-50/80 dark:from-blue-950/30 dark:to-indigo-950/30 border-2 border-blue-200/50 dark:border-blue-800/50 shadow-[var(--shadow-soft)]">
+                      <CardContent className="p-8">
+                        <h3 className="text-2xl font-bold mb-4 flex items-center gap-3 text-foreground">
+                          <FileText className="w-6 h-6 text-primary" />
                           Executive Summary
                         </h3>
-                        <p className="text-foreground/90 leading-relaxed">{summary}</p>
+                        <p className="text-foreground/90 leading-relaxed text-lg">{summary}</p>
                       </CardContent>
                     </Card>
                   )}
@@ -224,11 +228,11 @@ const Result = () => {
                   {/* Pillar Scores Grid */}
                   {pillarScores && (
                     <div>
-                      <div className="flex items-center gap-2 mb-6">
-                        <TrendingUp className="w-6 h-6 text-primary" />
-                        <h2 className="text-2xl font-bold">8 Pillar Analysis</h2>
+                      <div className="flex items-center gap-3 mb-8">
+                        <TrendingUp className="w-7 h-7 text-primary" />
+                        <h2 className="text-3xl font-bold text-foreground">8 Pillar Analysis</h2>
                       </div>
-                      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-5">
                         <PillarScoreCard name="Search Visibility" score={pillarScores.searchVisibility || 0} />
                         <PillarScoreCard name="Digital Authority" score={pillarScores.digitalAuthority || 0} />
                         <PillarScoreCard name="Social Presence" score={pillarScores.socialPresence || 0} />
@@ -243,27 +247,27 @@ const Result = () => {
 
                   {/* Actionable Recommendations */}
                   {Object.keys(recommendations).length > 0 && (
-                    <div className="space-y-4">
-                      <h3 className="text-xl font-bold flex items-center gap-2">
-                        <Lightbulb className="w-5 h-5" />
+                    <div className="space-y-5">
+                      <h3 className="text-2xl font-bold flex items-center gap-3 text-foreground">
+                        <Lightbulb className="w-6 h-6 text-primary" />
                         Key Insights
                       </h3>
                       <div className="space-y-3">
                         {Object.entries(recommendations).map(([pillar, content]) => (
                           <Collapsible key={pillar}>
                             <CollapsibleTrigger className="w-full">
-                              <Card className="hover:shadow-md transition-shadow cursor-pointer">
-                                <CardContent className="p-4 flex justify-between items-center">
-                                  <span className="font-semibold capitalize text-left">
+                              <Card className="backdrop-blur-sm bg-white/60 hover:bg-white/80 hover:shadow-[var(--shadow-soft)] transition-all duration-300 cursor-pointer">
+                                <CardContent className="p-5 flex justify-between items-center">
+                                  <span className="font-semibold capitalize text-left text-foreground text-lg">
                                     {pillar.replace(/_/g, ' ')}
                                   </span>
-                                  <ChevronDown className="w-4 h-4 transition-transform ui-expanded:rotate-180" />
+                                  <ChevronDown className="w-5 h-5 transition-transform ui-expanded:rotate-180 text-primary" />
                                 </CardContent>
                               </Card>
                             </CollapsibleTrigger>
                             <CollapsibleContent>
-                              <div className="p-4 bg-muted/30 rounded-b-lg border-t mt-[-1px]">
-                                <p className="text-sm text-foreground/80 leading-relaxed">{content}</p>
+                              <div className="p-5 backdrop-blur-sm bg-muted/40 rounded-b-lg border-t-2 border-border/30 mt-[-1px]">
+                                <p className="text-base text-foreground/90 leading-relaxed">{content}</p>
                               </div>
                             </CollapsibleContent>
                           </Collapsible>

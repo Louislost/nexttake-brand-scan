@@ -1,13 +1,19 @@
 const HeroSection = () => {
-  return <section className="pt-32 pb-12 px-4 animate-fade-in">
-      <div className="container mx-auto max-w-4xl text-left">
-        <h1 className="text-4xl md:text-5xl lg:text-6xl font-black mb-6 leading-tight md:leading-[1.15] lg:leading-[1.2] uppercase max-w-7xl bg-secondary inline-block px-4 py-3">
-          Brand Awareness & Influencer Readiness Diagnostic
+  return (
+    <section className="pt-36 pb-16 px-4 animate-fade-in">
+      <div className="container mx-auto max-w-5xl text-center">
+        <h1 className="text-5xl md:text-6xl lg:text-7xl font-extrabold mb-8 leading-tight tracking-tight">
+          <span className="text-primary">Brand Awareness</span>
+          {" & "}
+          <span className="text-foreground">Influencer Readiness</span>
+          <br />
+          <span className="text-foreground">Diagnostic</span>
         </h1>
-        <p className="text-xl md:text-2xl text-muted-foreground max-w-2xl">
+        <p className="text-xl md:text-2xl text-muted-foreground max-w-3xl mx-auto font-light">
           Enter your brand information below to generate your instant analysis.
         </p>
       </div>
-    </section>;
+    </section>
+  );
 };
 export default HeroSection;

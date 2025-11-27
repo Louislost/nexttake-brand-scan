@@ -8,9 +8,9 @@ interface PillarScoreCardProps {
 
 const PillarScoreCard = ({ name, score }: PillarScoreCardProps) => {
   const getStatusColor = (score: number) => {
-    if (score >= 70) return "text-green-500";
-    if (score >= 40) return "text-yellow-500";
-    return "text-red-500";
+    if (score >= 70) return "text-emerald-600 dark:text-emerald-400";
+    if (score >= 40) return "text-amber-600 dark:text-amber-400";
+    return "text-rose-600 dark:text-rose-400";
   };
 
   const getStatusIcon = (score: number) => {
@@ -20,16 +20,16 @@ const PillarScoreCard = ({ name, score }: PillarScoreCardProps) => {
   };
 
   const getStatusBg = (score: number) => {
-    if (score >= 70) return "bg-green-500/10 border-green-500/20";
-    if (score >= 40) return "bg-yellow-500/10 border-yellow-500/20";
-    return "bg-red-500/10 border-red-500/20";
+    if (score >= 70) return "bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-200/50 dark:border-emerald-800/50";
+    if (score >= 40) return "bg-amber-50/80 dark:bg-amber-950/30 border-amber-200/50 dark:border-amber-800/50";
+    return "bg-rose-50/80 dark:bg-rose-950/30 border-rose-200/50 dark:border-rose-800/50";
   };
 
   return (
-    <Card className={`${getStatusBg(score)} border-2`}>
+    <Card className={`${getStatusBg(score)} border-2 backdrop-blur-sm transition-all duration-300 hover:scale-105 hover:shadow-[var(--shadow-soft)]`}>
       <CardContent className="p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold">{name}</h3>
+          <h3 className="text-lg font-semibold text-foreground">{name}</h3>
           <div className={getStatusColor(score)}>
             {getStatusIcon(score)}
           </div>

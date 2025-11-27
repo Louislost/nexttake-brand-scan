@@ -80,11 +80,11 @@ const BrandDiagnosticForm = () => {
   };
 
   return (
-    <Card className="max-w-3xl mx-auto p-8 md:p-12 shadow-[var(--shadow-medium)] animate-slide-up">
-      <form onSubmit={handleSubmit(onSubmit)} className={`space-y-8 transition-opacity duration-300 ${isLoading ? 'opacity-50' : 'opacity-100'}`}>
+    <Card className="max-w-3xl mx-auto backdrop-blur-xl bg-white/70 border border-white/20 shadow-[var(--shadow-glass)] animate-slide-up transition-all duration-300 hover:shadow-[var(--shadow-medium)]">
+      <form onSubmit={handleSubmit(onSubmit)} className={`space-y-8 p-8 md:p-12 transition-opacity duration-300 ${isLoading ? 'opacity-50' : 'opacity-100'}`}>
         {/* Brand Name - Required */}
         <div className="space-y-3">
-          <Label htmlFor="brandName" className="text-lg font-semibold flex items-center gap-2">
+          <Label htmlFor="brandName" className="text-lg font-semibold flex items-center gap-2 text-foreground">
             <Sparkles className="w-5 h-5 text-primary" />
             Brand Name
             <span className="text-destructive">*</span>
@@ -93,7 +93,7 @@ const BrandDiagnosticForm = () => {
             id="brandName"
             type="text"
             placeholder="e.g., &quot;Nike&quot;, &quot;Zara&quot;, &quot;Adidas&quot;"
-            className={`h-14 text-lg ${errors.brandName ? 'border-destructive' : 'focus:border-primary'}`}
+            className={`h-14 text-lg border-2 transition-all duration-300 ${errors.brandName ? 'border-destructive' : 'border-border focus:border-primary'}`}
             {...register("brandName")}
           />
           {errors.brandName && (
@@ -103,7 +103,7 @@ const BrandDiagnosticForm = () => {
 
         {/* Website URL - Required */}
         <div className="space-y-3">
-          <Label htmlFor="websiteUrl" className="text-lg font-semibold flex items-center gap-2">
+          <Label htmlFor="websiteUrl" className="text-lg font-semibold flex items-center gap-2 text-foreground">
             <Globe className="w-5 h-5 text-primary" />
             Brand Website URL
             <span className="text-destructive">*</span>
@@ -112,7 +112,7 @@ const BrandDiagnosticForm = () => {
             id="websiteUrl"
             type="url"
             placeholder="https://www.example.com"
-            className={`h-14 text-lg ${errors.websiteUrl ? 'border-destructive' : 'focus:border-primary'}`}
+            className={`h-14 text-lg border-2 transition-all duration-300 ${errors.websiteUrl ? 'border-destructive' : 'border-border focus:border-primary'}`}
             {...register("websiteUrl")}
           />
           {errors.websiteUrl && (
@@ -122,62 +122,62 @@ const BrandDiagnosticForm = () => {
 
         {/* Social Links Grid */}
         <div className="space-y-4">
-          <h3 className="text-lg font-semibold">Social Media Handles</h3>
+          <h3 className="text-lg font-semibold text-foreground">Social Media Handles</h3>
           <p className="text-sm text-muted-foreground">All fields are optional</p>
           
           <div className="grid md:grid-cols-2 gap-6">
             {/* Instagram */}
             <div className="space-y-2">
-              <Label htmlFor="instagram" className="flex items-center gap-2">
+              <Label htmlFor="instagram" className="flex items-center gap-2 text-foreground">
                 <Instagram className="w-4 h-4 text-primary" />
                 Instagram
               </Label>
               <Input
                 id="instagram"
                 placeholder="@yourbrand"
-                className="h-12"
+                className="h-12 border-2 border-border focus:border-primary transition-all duration-300"
                 {...register("instagram")}
               />
             </div>
 
             {/* Twitter/X */}
             <div className="space-y-2">
-              <Label htmlFor="twitter" className="flex items-center gap-2">
+              <Label htmlFor="twitter" className="flex items-center gap-2 text-foreground">
                 <Twitter className="w-4 h-4 text-primary" />
                 X / Twitter
               </Label>
               <Input
                 id="twitter"
                 placeholder="@yourbrand"
-                className="h-12"
+                className="h-12 border-2 border-border focus:border-primary transition-all duration-300"
                 {...register("twitter")}
               />
             </div>
 
             {/* LinkedIn */}
             <div className="space-y-2">
-              <Label htmlFor="linkedin" className="flex items-center gap-2">
+              <Label htmlFor="linkedin" className="flex items-center gap-2 text-foreground">
                 <Linkedin className="w-4 h-4 text-primary" />
                 LinkedIn
               </Label>
               <Input
                 id="linkedin"
                 placeholder="company/yourbrand"
-                className="h-12"
+                className="h-12 border-2 border-border focus:border-primary transition-all duration-300"
                 {...register("linkedin")}
               />
             </div>
 
             {/* TikTok */}
             <div className="space-y-2">
-              <Label htmlFor="tiktok" className="flex items-center gap-2">
+              <Label htmlFor="tiktok" className="flex items-center gap-2 text-foreground">
                 <Music2 className="w-4 h-4 text-primary" />
                 TikTok
               </Label>
               <Input
                 id="tiktok"
                 placeholder="@yourbrand"
-                className="h-12"
+                className="h-12 border-2 border-border focus:border-primary transition-all duration-300"
                 {...register("tiktok")}
               />
             </div>
@@ -188,26 +188,26 @@ const BrandDiagnosticForm = () => {
         <div className="grid md:grid-cols-2 gap-6">
           {/* Industry */}
           <div className="space-y-2">
-            <Label htmlFor="industry" className="text-base font-semibold">
+            <Label htmlFor="industry" className="text-base font-semibold text-foreground">
               Industry
             </Label>
             <Input
               id="industry"
               placeholder="e.g., Fashion, Tech, Food & Beverage"
-              className="h-12"
+              className="h-12 border-2 border-border focus:border-primary transition-all duration-300"
               {...register("industry")}
             />
           </div>
 
           {/* Market */}
           <div className="space-y-2">
-            <Label htmlFor="market" className="text-base font-semibold">
+            <Label htmlFor="market" className="text-base font-semibold text-foreground">
               Market / Country
             </Label>
             <Input
               id="market"
               placeholder="e.g., USA, Europe, Worldwide"
-              className="h-12"
+              className="h-12 border-2 border-border focus:border-primary transition-all duration-300"
               {...register("market")}
             />
           </div>
@@ -219,7 +219,7 @@ const BrandDiagnosticForm = () => {
             type="submit"
             size="lg"
             disabled={isLoading}
-            className="w-full h-16 text-lg font-bold bg-gradient-to-r from-primary to-accent hover:opacity-90 transition-all hover:scale-[1.02] shadow-[var(--shadow-soft)]"
+            className="w-full h-16 text-lg font-bold bg-gradient-to-r from-primary to-accent hover:opacity-90 transition-all duration-300 hover:scale-[1.02] shadow-[var(--shadow-soft)] hover:shadow-[var(--shadow-medium)]"
           >
             {isLoading ? (
               <>
