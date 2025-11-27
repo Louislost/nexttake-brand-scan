@@ -110,32 +110,41 @@ export default {
         },
         "blob-float-1": {
           "0%, 100%": {
-            transform: "translate(0, 0) scale(1)"
+            transform: "translate(0, 0) scale(1) rotate(0deg)"
           },
-          "33%": {
-            transform: "translate(40px, -50px) scale(1.08)"
+          "25%": {
+            transform: "translate(60px, -70px) scale(1.12) rotate(5deg)"
           },
-          "66%": {
-            transform: "translate(-30px, 35px) scale(0.92)"
+          "50%": {
+            transform: "translate(-40px, 50px) scale(0.88) rotate(-3deg)"
+          },
+          "75%": {
+            transform: "translate(50px, 60px) scale(1.08) rotate(4deg)"
           }
         },
         "blob-float-2": {
           "0%, 100%": {
-            transform: "translate(0, 0) scale(1)"
+            transform: "translate(0, 0) scale(1) rotate(0deg)"
           },
-          "33%": {
-            transform: "translate(-45px, 28px) scale(0.94)"
+          "25%": {
+            transform: "translate(-65px, 40px) scale(0.9) rotate(-6deg)"
           },
-          "66%": {
-            transform: "translate(35px, -35px) scale(1.06)"
+          "50%": {
+            transform: "translate(55px, -55px) scale(1.1) rotate(5deg)"
+          },
+          "75%": {
+            transform: "translate(-50px, -45px) scale(0.95) rotate(-4deg)"
           }
         },
         "blob-float-3": {
           "0%, 100%": {
-            transform: "translate(0, 0) scale(1)"
+            transform: "translate(0, 0) scale(1) rotate(0deg)"
           },
-          "50%": {
-            transform: "translate(30px, 45px) scale(1.1)"
+          "33%": {
+            transform: "translate(45px, 65px) scale(1.15) rotate(6deg)"
+          },
+          "66%": {
+            transform: "translate(-55px, -50px) scale(0.92) rotate(-5deg)"
           }
         },
         "subtle-pulse": {
@@ -153,10 +162,10 @@ export default {
         "fade-in": "fade-in 0.5s ease-out",
         "slide-up": "slide-up 0.6s ease-out",
         "shimmer": "shimmer 2s infinite linear",
-        "blob-float-1": "blob-float-1 5s ease-in-out infinite",
-        "blob-float-2": "blob-float-2 6s ease-in-out infinite",
-        "blob-float-3": "blob-float-3 4.5s ease-in-out infinite",
-        "subtle-pulse": "subtle-pulse 2.5s ease-in-out infinite"
+        "blob-float-1": "blob-float-1 3s ease-in-out infinite",
+        "blob-float-2": "blob-float-2 3.5s ease-in-out infinite",
+        "blob-float-3": "blob-float-3 2.8s ease-in-out infinite",
+        "subtle-pulse": "subtle-pulse 2s ease-in-out infinite"
       },
     },
   },
