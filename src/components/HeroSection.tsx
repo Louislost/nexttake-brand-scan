@@ -3,7 +3,7 @@ const HeroSection = () => {
     <section className="pt-36 pb-16 px-4 animate-fade-in">
       <div className="container mx-auto max-w-5xl text-center">
         <h1 className="text-5xl md:text-6xl lg:text-7xl font-extrabold mb-8 leading-tight tracking-tight">
-          <span className="text-primary">Brand Awareness</span>
+          <span className="gradient-text">Brand Awareness</span>
           {" & "}
           <span className="text-foreground">Influencer Readiness</span>
           <br />
