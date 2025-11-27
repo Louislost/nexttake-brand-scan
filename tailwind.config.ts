@@ -153,9 +153,9 @@ export default {
         "fade-in": "fade-in 0.5s ease-out",
         "slide-up": "slide-up 0.6s ease-out",
         "shimmer": "shimmer 2s infinite linear",
-        "blob-float-1": "blob-float-1 15s ease-in-out infinite",
-        "blob-float-2": "blob-float-2 18s ease-in-out infinite",
-        "blob-float-3": "blob-float-3 13s ease-in-out infinite",
+        "blob-float-1": "blob-float-1 10s ease-in-out infinite",
+        "blob-float-2": "blob-float-2 12s ease-in-out infinite",
+        "blob-float-3": "blob-float-3 9s ease-in-out infinite",
         "subtle-pulse": "subtle-pulse 4s ease-in-out infinite"
       },
     },
